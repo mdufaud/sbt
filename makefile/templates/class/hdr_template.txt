@@ -1,0 +1,20 @@
+#ifndef __APP_NAME_UPPER_MODULE_NAME_UPPER_CLASS_NAME_UPPER_HPP__
+#define __APP_NAME_UPPER_MODULE_NAME_UPPER_CLASS_NAME_UPPER_HPP__
+
+namespace APP_NAME::MODULE_NAME
+{
+
+class CLASS_NAME
+{
+    public:
+        CLASS_NAME();
+        virtual ~CLASS_NAME();
+
+    protected:
+
+    private:
+};
+
+}
+
+#endif

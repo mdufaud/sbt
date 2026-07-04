@@ -1,0 +1,32 @@
+#include <gtest/gtest.h>
+
+#include <APP_NAME/MODULE_NAME/CLASS_NAME.hpp>
+
+namespace test
+{
+    using namespace APP_NAME::MODULE_NAME;
+    class TestCLASS_NAME: public ::testing::Test
+    {
+        protected:
+            TestCLASS_NAME()
+            {
+            }
+
+            virtual ~TestCLASS_NAME()
+            {
+            }
+
+            virtual void SetUp()
+            {
+            }
+
+            virtual void TearDown()
+            {
+            }
+    };
+
+    TEST_F(TestCLASS_NAME, test_LOWER_CLASS_NAME)
+    {
+        EXPECT_EQ(true, true);
+    }
+}
