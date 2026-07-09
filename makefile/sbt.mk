@@ -222,6 +222,16 @@ info:
 conf:
 	$(QUIET) machine=$(machine) mode=$(mode) platform=$(platform) compiler=$(compiler) libc=$(libc) static=$(static) $(PYTHON_BIN) $(SBT_CLI) conf $(m)
 
+.PHONY: dump # Dump parsed app.py configuration (human-readable)
+
+dump:
+	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump-config
+
+.PHONY: jdump # Dump parsed app.py configuration as JSON
+
+jdump:
+	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump-config --json
+
 ######################
 # List Makefile rules
 ######################

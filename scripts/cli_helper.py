@@ -127,11 +127,65 @@ def _dump():
     return json_path
 
 
+def _dump_config_readable(data, indent=0):
+    prefix = "  " * indent
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, (dict, list, tuple, set)):
+                print(f"{prefix}{k}:")
+                _dump_config_readable(v, indent + 1)
+            else:
+                print(f"{prefix}{k}: {v}")
+    elif isinstance(data, (list, tuple, set)):
+        if not data:
+            print(f"{prefix}[]")
+            return
+        if all(not isinstance(x, (dict, list, tuple, set)) for x in data):
+            print(f"{prefix}{list(data)}")
+        else:
+            for item in data:
+                if isinstance(item, (dict, list, tuple, set)):
+                    _dump_config_readable(item, indent)
+                else:
+                    print(f"{prefix}- {item}")
+    else:
+        print(f"{prefix}{data}")
+
+
+def _json_default(obj):
+    if isinstance(obj, (set, tuple)):
+        return list(obj)
+    return str(obj)
+
+
+def _dump_config(as_json=False):
+    app = loader.load_app()
+    data = {}
+    for attr in sorted(dir(app)):
+        if attr.startswith('_'):
+            continue
+        value = getattr(app, attr)
+        if callable(value):
+            continue
+        if isinstance(value, type(sys)):
+            continue
+        data[attr] = value
+
+    if as_json:
+        print(json.dumps(data, indent=2, default=_json_default))
+    else:
+        _dump_config_readable(data)
+
+
 if __name__ == '__main__':
     import sys
 
     if len(sys.argv) >= 2 and sys.argv[1] == "conf":
         _conf(sys.argv[2] if len(sys.argv) > 2 else None)
+        sys.exit(0)
+    if len(sys.argv) >= 2 and sys.argv[1] == "dump-config":
+        as_json = len(sys.argv) > 2 and sys.argv[2] == "--json"
+        _dump_config(as_json)
         sys.exit(0)
     if len(sys.argv) != 2:
         sys.exit(0)
