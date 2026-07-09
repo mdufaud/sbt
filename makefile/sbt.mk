@@ -232,6 +232,11 @@ dump:
 jdump:
 	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump-config --json
 
+.PHONY: path # Print the build path
+
+path:
+	$(QUIET) echo "$(BUILD_PATH)"
+
 ######################
 # List Makefile rules
 ######################
