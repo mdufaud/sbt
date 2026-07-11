@@ -33,13 +33,10 @@ $(error ANDROID_SDK_PATH not set -- export it to your Android SDK root (the dir 
 endif
 endif
 
-# Prevent make from interpreting the APK path argument as a target
 ifneq ($(filter adb android-emu-run,$(MAKECMDGOALS)),)
 ifeq ($(ADB_APK),)
 $(error Usage: make $(filter adb android-emu-run,$(MAKECMDGOALS)) <path/to/apk>)
 endif
-$(ADB_APK):
-	@:
 endif
 
 adb:

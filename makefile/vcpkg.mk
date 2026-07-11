@@ -18,16 +18,22 @@ ifeq ($(MAKEARG_2), mod)
 .PHONY: mod
 PKG_MANAGER_NAME := auto
 MODULES_NAME := $(MAKEARG_3),$(m)
+mod:
+	$(QUIET) echo > /dev/null
 else ifeq ($(MAKEARG_2), demo)
 .PHONY: demo
 PKG_MANAGER_NAME := auto
 MODULES_NAME := $(MAKEARG_3),$(m)
 DEMO_MOD := 1
+demo:
+	$(QUIET) echo > /dev/null
 else ifeq ($(MAKEARG_2), test)
 .PHONY: test
 PKG_MANAGER_NAME := auto
 MODULES_NAME := $(MAKEARG_3),$(m)
 TEST_MOD := 1
+test:
+	$(QUIET) echo > /dev/null
 else
 PKG_MANAGER_NAME := $(MAKEARG_2)
 endif # pkgdep mod
@@ -41,9 +47,6 @@ pkgdep: demo = $(DEMO_MOD)
 pkgdep: modules = $(MODULES_NAME)
 pkgdep: pkgdep = $(PKG_MANAGER_NAME)
 pkgdep: build
-
-$(PKG_MANAGER_NAME):
-	$(QUIET) echo > /dev/null
 
 endif # pkgdep
 

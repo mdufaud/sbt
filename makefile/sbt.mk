@@ -36,11 +36,6 @@ ifndef MAKE_VERBOSE
 QUIET := @
 endif
 
-MAKEARG_1 := $(word 1, $(MAKECMDGOALS))
-MAKEARG_2 := $(word 2, $(MAKECMDGOALS))
-MAKEARG_3 := $(word 3, $(MAKECMDGOALS))
-MAKEARG_4 := $(word 4, $(MAKECMDGOALS))
-
 PROJECT_ROOT_PATH := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 ##############
@@ -111,6 +106,7 @@ DIST_PATH := $(BUILD_PATH)/dist
 
 MAKEFILE_TOOLS := $(SBT_PATH)/makefile
 
+include $(MAKEFILE_TOOLS)/args.mk
 include $(MAKEFILE_TOOLS)/logger.mk
 include $(MAKEFILE_TOOLS)/utils.mk
 include $(MAKEFILE_TOOLS)/templates.mk

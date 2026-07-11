@@ -188,10 +188,4 @@ $(eval $(call mk_nointeract_debug_test,lsan_test,ilsantest))
 $(eval $(call mk_nointeract_debug_test,msan_test,imsantest))
 $(eval $(call mk_nointeract_debug_test,hwasan_test,ihwasantest))
 
-$(MODULES_NAME):
-	$(QUIET) echo > /dev/null
-
-$(TEST_NAME_FILTER):
-	$(QUIET) echo > /dev/null
-
 endif # test

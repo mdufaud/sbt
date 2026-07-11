@@ -20,14 +20,4 @@ cppcheck:
 		"$(BUILD_PATH)" "$(PROJECT_ROOT_PATH)" \
 		$(shell printf '%s' "$(CPPCHECK_MODULES_ARG)" | tr ',' ' ')
 
-# Prevent 'no rule to make target' for module name args
-ifneq ($(MAKEARG_2),)
-$(MAKEARG_2):
-	$(QUIET) echo > /dev/null
-endif
-ifneq ($(MAKEARG_3),)
-$(MAKEARG_3):
-	$(QUIET) echo > /dev/null
-endif
-
 endif # cppcheck

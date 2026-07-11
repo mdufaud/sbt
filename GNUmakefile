@@ -1,7 +1,6 @@
 SBT_PATH := $(CURDIR)
 
-MAKEARG_1 := $(word 1, $(MAKECMDGOALS))
-MAKEARG_2 := $(word 2, $(MAKECMDGOALS))
+include $(SBT_PATH)/makefile/args.mk
 
 .PHONY: help
 help:

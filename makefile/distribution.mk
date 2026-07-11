@@ -31,10 +31,4 @@ ifeq ($(DIST_TYPE), docker)
 	$(QUIET) echo "  docker run --rm $(APP_NAME) <binary>"
 endif
 
-$(MODULES_NAME):
-	$(QUIET) echo > /dev/null
-
-$(DIST_TYPE):
-	$(QUIET) echo > /dev/null
-
 endif # dist
