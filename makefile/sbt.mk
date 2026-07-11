@@ -182,6 +182,7 @@ help:
 	$(call mk_log_info,makefile,get dependencies: make dep)
 	$(call mk_log_info,makefile,build and run tests: make test)
 	$(call mk_log_info,makefile,build specific modules: modules=<comma_separated_modules>)
+	$(call mk_log_info,makefile,also build modules without running their tests: fmod=<comma_separated_modules>|all)
 	$(call mk_log_info,makefile,build with address sanitizer: asan=1)
 	$(call mk_log_info,makefile,build with undefined behavior sanitizer: ubsan=1)
 	$(call mk_log_info,makefile,build with thread sanitizer: tsan=1)
@@ -281,6 +282,7 @@ build:
 	$(QUIET) cd $(PROJECT_ROOT_PATH)
 	$(eval BUILD_CMD_LINE = \
 			modules=$(modules) \
+			fmod=$(fmod) \
 			test=$(test) \
 			dist=$(dist) \
 			mode=$(mode) \

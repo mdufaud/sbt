@@ -378,6 +378,28 @@ test = env.build_test(tests, libs=[env.module_format_name()])
 Return('lib')
 ```
 
+Such a module is **adaptive**: it binds/compiles a sibling module only when that sibling is
+in the build. Its own `depends` must therefore stay minimal — anything listed in `depends` is
+*forced* into every build, which defeats the adaptation. Declare the optional siblings in
+`conditional-depends` instead: they are linked only if they are already in the build for some
+other reason (see [Module dependencies](#module-dependencies)).
+
+### `m=` vs `fmod=`
+
+`m=` (alias `modules=`) selects **what to build**, and for `make test` it *also* selects
+**whose tests are run**. `fmod=` only **adds modules to the build** — their test suites are
+not run.
+
+This is what lets you compile a module purely so an adaptive module can bind it:
+
+```bash
+make test m=lua                # build lua (lean), run lua's tests
+make test m=lua fmod=http      # ALSO build http so lua binds it - but do NOT run http's tests
+make test m=lua fmod=all       # build everything, still only run lua's tests
+```
+
+Without `fmod`, `make test m=lua,http` would drag http's entire test suite into the run.
+
 ## Conditional modules
 
 Modules that are only built when explicitly requested.
@@ -496,6 +518,8 @@ Requires `cppcheck` (install via package manager). Checks are run with `--std=c+
 ```bash
 make test m=core                    # Build + run tests
 make itest                          # Non-interactive tests
+make test m=lua fmod=http           # Build http too, but run ONLY lua's tests
+make test m=lua fmod=all            # Build every module, run ONLY lua's tests
 make valtest                        # Tests with valgrind
 make lvaltest                       # Tests with valgrind leak checking
 make tracetest                      # Tests with strace

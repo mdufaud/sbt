@@ -50,7 +50,10 @@ modules_forced_to_build = builder.get_force_build_modules()
 
 modules_lst = builder.get_modules_lst()
 if modules_forced_to_build:
-    modules_lst.extend(builder.get_force_build_modules_lst())
+    if modules_forced_to_build == "all":
+        modules_lst.extend(app.modules.keys())
+    else:
+        modules_lst.extend(builder.get_force_build_modules_lst())
 
 compiler = builder.build_compiler
 build_platform = builder.build_platform
