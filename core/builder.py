@@ -61,7 +61,7 @@ def get_machine():
 # from conans/conan/tools/gnu/get_gnu_triplet.py in https://github.com/conan-io
 def _build_gnu_triplet(machine, vendor, libc="gnu"):
     machine = architectures.get_gnu_machine(machine)
-    op_system = {
+    _vendor_map = {
         "windows": "w64-mingw32",
         "linux": f"linux-{libc}",
         "darwin": "apple-darwin",
@@ -75,9 +75,10 @@ def _build_gnu_triplet(machine, vendor, libc="gnu"):
         "emscripten": "local-emscripten",
         "aix": "ibm-aix",
         "neutrino": "nto-qnx"
-    }.get(vendor, vendor)
-    if op_system is None:
-        raise SystemExit("unknown vendor: {}".format(vendor))
+    }
+    if vendor not in _vendor_map:
+        logger.warning("unknown vendor '{}' — using as-is in gnu triplet".format(vendor))
+    op_system = _vendor_map.get(vendor, vendor)
     if vendor in ("linux", "android"):
         if machine in ("armv6", "armv6l", "armv7", "armv7l"):
             # Add 'eabi' for ARM architectures
