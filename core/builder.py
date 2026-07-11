@@ -48,7 +48,7 @@ def get_machine():
     machine = utils.get_opt('machine', None)
     if machine is None:
         # Android defaults to arm64 (most common Android device architecture)
-        if __get_platform() == "android":
+        if __get_build_platform() == "android":
             machine = "arm64"
         else:
             machine = get_host_machine()
@@ -199,15 +199,15 @@ def is_msys():
 def is_msys_mingw():
     return is_msys() and "MINGW" in os.getenv("MSYSTEM")
 
-def __get_platform():
-    env = utils.get_opt("platform", "")
-    build_platform = (env or platform.system()).lower()
+def __get_build_platform():
+    platform_env = utils.get_opt("platform", "")
+    build_platform = (platform_env or get_host_platform()).lower()
     if "win" in build_platform or is_msys():
         build_platform = "windows"
     return build_platform
 
 def get_compiler():
-    build_platform = __get_platform()
+    build_platform = __get_build_platform()
     compiler = utils.get_opt("compiler", os.getenv("COMPILER", "gcc"))
     if is_termux():
         compiler = "clang"
@@ -221,7 +221,7 @@ def get_compiler():
 
 def get_platform():
     compiler = get_compiler()
-    build_platform = __get_platform()
+    build_platform = __get_build_platform()
     if compiler == "mingw":
         build_platform = "windows"
     elif compiler == "em":
@@ -339,7 +339,7 @@ def force_git_clone():
 
 def get_libc():
     # Android uses bionic libc — force it when platform=android
-    if __get_platform() == "android":
+    if __get_build_platform() == "android":
         return architectures.ANDROID_LIBC
     libc = utils.get_opt("libc", "gnu").lower()
     if libc not in architectures.LIBCS:
@@ -376,6 +376,12 @@ def get_host_libc():
     # Default to gnu for most systems
     return "gnu"
 
+def get_host_platform():
+    """Detect the host platform (linux, windows, darwin, etc.)"""
+    if is_termux():
+        return "linux"
+    return platform.system().lower()
+
 ###############################################################################
 # Build initialisation
 ###############################################################################
@@ -385,6 +391,7 @@ libc = get_libc()
 build_compiler = get_compiler()
 build_compiler_version = get_compiler_version()
 build_cpu = get_cpu()
+host_platform = get_host_platform()
 host_libc = get_host_libc()
 host_machine = get_host_machine()
 build_machine = get_machine()
@@ -407,7 +414,6 @@ logger.set_verbose(build_verbose)
 
 # platform
 build_platform = get_platform()
-host_platform = "linux"  # sbt runs on linux
 build_on_termux = is_termux()
 build_for_windows = build_platform == "windows"
 build_for_linux = build_platform == "linux"
