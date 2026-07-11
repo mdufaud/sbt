@@ -378,7 +378,7 @@ def build_modules_conf(app, specific_modules=None, conditionals=None):
     if specific_modules and specific_modules[0] != '':
         app_modules = app.modules
         # if a conditional is in specific module list, add conditionals to list of modules
-        if has_conditional_in_modules_list(app.conditional_modules, specific_modules):
+        if hasattr(app, "conditional_modules") and has_conditional_in_modules_list(app.conditional_modules, specific_modules):
             app_modules = get_module_merged_with_conditionals(app)
         fill_modlist_from_modules(app_modules, specific_modules, modules)
     else:
