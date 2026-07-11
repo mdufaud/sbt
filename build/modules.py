@@ -263,6 +263,11 @@ def check_platform(modules, platform, modules_options=None):
                 to_remove.append(name)
     for name in to_remove:
         del modules[name]
+    for conf in modules.values():
+        for key in ("depends", "declared-depends", "original-depends"):
+            deps = conf.get(key)
+            if deps:
+                conf[key] = [dep for dep in deps if dep not in to_remove]
     return to_remove
 
 def check_linkage(modules, linkage):
