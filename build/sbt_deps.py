@@ -367,8 +367,8 @@ def fetch():
 
     verbose = builder.build_verbose
     force = builder.force_git_clone()
-    deps_dir = os.path.join(builder.build_root_path, ".sbt-deps")
-    consumer_vcpkg_path = os.path.join(builder.build_root_path, ".vcpkg")
+    deps_dir = builder.sbt_deps_path
+    consumer_vcpkg_path = builder.vcpkg_path
     consumer_extlib_path = builder.build_extlib_path
 
     logger.info(f"resolving {len(sbt_deps)} SBT dependenc{'y' if len(sbt_deps) == 1 else 'ies'}")

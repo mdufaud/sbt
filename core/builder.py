@@ -464,6 +464,9 @@ build_obj_path = join(build_path, "obj")
 # SBT external project dependencies
 sbt_deps_path = join(build_root_path, ".sbt-deps")
 
+# vcpkg installation directory — respects VCPKG_ROOT if set, falls back to project-local .vcpkg
+vcpkg_path = os.environ.get("VCPKG_ROOT") or join(build_root_path, ".vcpkg")
+
 libs_type = liblink
 
 ###############################################################################
