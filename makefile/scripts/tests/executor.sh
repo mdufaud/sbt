@@ -124,7 +124,7 @@ execute_tests()
             # failures are printed at the end by print_failures
             (cd $module_path && $cmd; echo $? > "${exit_log}") > "${output_log}" 2>&1
         else
-            # merge stdout (gtest markers/assertions) and stderr (sihd debug logs)
+            # merge stdout (gtest markers/assertions) and stderr (myapp debug logs)
             # into one ordered log so failure context stays correlated
             (cd $module_path && $cmd; echo $? > "${exit_log}") 2>&1 | tee "${output_log}"
         fi

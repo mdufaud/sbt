@@ -140,8 +140,8 @@ line**, in the right order. Two things to get right:
    libs in `--start-group`. List a library *before* the libraries it needs:
 
    ```python
-   # sihd's util uses sihd::json, which uses simdjson:
-   "libs": ['sihd_util', 'sihd_json', 'simdjson', 'qrencode', 'zstd', 'fmt'],
+   # myapp's util uses myapp::json, which uses simdjson:
+   "libs": ['myapp_util', 'myapp_json', 'simdjson', 'qrencode', 'zstd', 'fmt'],
    "export-all-libs": True,
    ```
 

@@ -142,7 +142,7 @@ Same cross-compilation sysroot as GCC (needs the cross-gcc packages installed fo
 
 ### MinGW (Linux → Windows)
 
-Fixed prefix: `x86_64-w64-mingw32-`. Defaults to **dynamic** (sihd `.dll` + import libs); `static=1` for a fully static build. Tested via wine.
+Fixed prefix: `x86_64-w64-mingw32-`. Defaults to **dynamic** (myapp `.dll` + import libs); `static=1` for a fully static build. Tested via wine.
 
 ```bash
 sudo apt install mingw-w64
@@ -391,7 +391,7 @@ Install emulators: `make dep` advertises them
 
 `qemu-<arch> ./test_bin` runs a foreign ELF directly — no setup. But a test that **spawns a
 child process** (`Process` / `proc::execute` → `posix_spawn` → the child `execve`s another guest
-ELF, e.g. the `sihd_sys_test_helper` used by `TestProcess.test_process_exec_timeout` and
+ELF, e.g. the `myapp_sys_test_helper` used by `TestProcess.test_process_exec_timeout` and
 `TestSharedMemory`) needs `binfmt_misc` registered for that arch. Otherwise the host kernel can't
 launch a guest-arch child from inside the qemu process and the `execve` returns
 `errno 8 (ENOEXEC)`; the spawn child exits 127 and the test fails. This is an **environment**
@@ -421,9 +421,9 @@ then run the test — the registration dies with the namespace.
 
 ### Adapting tests for cross targets
 
-See the [sihd-test skill](../../../.github/skills/sihd-test/references/patterns.md) (§11) for
-the two compile-time guard mechanisms: `#if !defined(__SIHD_WINDOWS__)` (POSIX-only symbols) and
-`#if !defined(SIHD_STATIC)` (dynamic-loading-only tests — `SIHD_STATIC` is defined on any
+See the [myapp-test skill](../../../.github/skills/myapp-test/references/patterns.md) (§11) for
+the two compile-time guard mechanisms: `#if !defined(__MYAPP_WINDOWS__)` (POSIX-only symbols) and
+`#if !defined(MYAPP_STATIC)` (dynamic-loading-only tests — `MYAPP_STATIC` is defined on any
 `static=1` build, making `DynLib`/`PluginLoader` no-ops; they work on the default dynamic mingw
 build). Tests must run and pass under the cross runner, not skip on it.
 
