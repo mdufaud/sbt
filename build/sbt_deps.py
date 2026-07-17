@@ -69,6 +69,14 @@ def _ref_is_branch(dest, ref):
     ) == 0
 
 
+def _init_git_extras(dest, recursive=False):
+    """Initialize submodules and pull LFS files after clone/fetch."""
+    if not recursive:
+        subprocess.call(["git", "-C", dest, "submodule", "update", "--init", "--recursive"])
+    if shutil.which("git-lfs"):
+        subprocess.call(["git", "-C", dest, "lfs", "pull"])
+
+
 def _clone_dep(name, config, deps_dir, force):
     """Clone a dependency git repo into deps_dir/name/."""
     git_url = config.get("git")
@@ -82,6 +90,8 @@ def _clone_dep(name, config, deps_dir, force):
         logger.info(f"force re-cloning dependency: {name}")
         shutil.rmtree(dest)
 
+    recursive = config.get("recursive", False)
+
     if os.path.isdir(dest):
         if _ref_is_branch(dest, ref):
             logger.info(f"updating dependency branch: {name} @ {ref}")
@@ -91,22 +101,22 @@ def _clone_dep(name, config, deps_dir, force):
                 raise RuntimeError(f"git reset failed for dependency '{name}' @ {ref}")
         else:
             logger.info(f"dependency already cloned (pinned ref): {name} -> {dest}")
-        return dest
+    else:
+        logger.info(f"cloning dependency: {name} ({git_url} @ {ref})")
+        args = ["git", "clone", "--branch", ref, "--depth", "1"]
+        if recursive:
+            args.append("--recursive")
+        args.extend([git_url, dest])
 
-    logger.info(f"cloning dependency: {name} ({git_url} @ {ref})")
-    args = ["git", "clone", "--branch", ref, "--depth", "1"]
-    if config.get("recursive", False):
-        args.append("--recursive")
-    args.extend([git_url, dest])
+        ret = subprocess.call(args)
+        if ret != 0:
+            raise RuntimeError(f"git clone failed for dependency '{name}': {' '.join(args)}")
 
-    ret = subprocess.call(args)
-    if ret != 0:
-        raise RuntimeError(f"git clone failed for dependency '{name}': {' '.join(args)}")
+        dep_app_path = os.path.join(dest, "app.py")
+        if not os.path.isfile(dep_app_path):
+            raise RuntimeError(f"cloned dependency '{name}' has no app.py at: {dep_app_path}")
 
-    dep_app_path = os.path.join(dest, "app.py")
-    if not os.path.isfile(dep_app_path):
-        raise RuntimeError(f"cloned dependency '{name}' has no app.py at: {dep_app_path}")
-
+    _init_git_extras(dest, recursive=recursive)
     return dest
 
 
