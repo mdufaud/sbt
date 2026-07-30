@@ -173,6 +173,7 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
     is_cross_linux = builder.is_cross_building() and builder.build_platform == "linux"
     is_android = builder.build_platform == "android"
     is_zig = builder.build_compiler == "zig"  # self-contained: chainloads zig-toolchain.cmake
+    is_filc = builder.build_compiler == "filc"  # self-contained: chainloads filc-toolchain.cmake
 
     # Per-port CMake options: base, then platform/cross override replaces per port.
     cmake_opts = dict(getattr(app, "vcpkg_cmake_configure_options", {}))
@@ -189,7 +190,9 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
         cmake_opts.setdefault("simdjson", []).append("-DSIMDJSON_AVX512_ALLOWED=OFF")
 
     need_cmake_opts = any(cmake_opts.values())
-    is_dynamic = triplets.is_musl_triplet(vcpkg_triplet) or triplets.is_zig_triplet(vcpkg_triplet)
+    is_dynamic = (triplets.is_musl_triplet(vcpkg_triplet)
+                  or triplets.is_zig_triplet(vcpkg_triplet)
+                  or triplets.is_filc_triplet(vcpkg_triplet))
 
     if not (need_flags or is_cross_linux or is_android or need_cmake_opts or is_dynamic):
         return None
@@ -248,7 +251,10 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
         # meson only finds via the cross file in cross mode. The cmake
         # cross-toolchain below fixes compiler detection instead, and that
         # propagates into vcpkg's generated meson files.
-        if not is_zig:
+        # zig and filc already chainload their own toolchain from the generated
+        # triplet; overwriting VCPKG_CHAINLOAD_TOOLCHAIN_FILE with the gcc cross
+        # toolchain would drop them back onto the host compiler.
+        if not is_zig and not is_filc:
             sbt_toolchains_path = os.path.join(os.path.dirname(sbt_triplet_path), "toolchains")
             addon_toolchains_path = (os.path.join(os.path.dirname(addon_triplet_path), "toolchains")
                                      if addon_triplet_path else None)

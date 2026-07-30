@@ -262,6 +262,12 @@ def _execute_vcpkg_install():
         if zig_target:
             copy_env["ZIG_TARGET"] = zig_target
 
+    # filc-toolchain.cmake reads FILC_PATH to locate the compiler. Re-export it
+    # from the resolved option so `make dep compiler=filc FILC_PATH=...` works
+    # even when it was passed as an argument rather than an environment variable.
+    if builder.build_compiler == "filc":
+        copy_env["FILC_PATH"] = builder.get_filc_root()
+
     # Cross-linux: create a pkg-config wrapper that isolates from host .pc files
     if builder.is_cross_building() and builder.build_platform == "linux":
         overlay_dir = os.path.join(vcpkg_build_path, "overlay-triplets")

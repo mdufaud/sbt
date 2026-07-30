@@ -61,6 +61,10 @@ def build_sbt_triplet_names(sbt_triplet_path: str, addon_triplet_path: str = Non
             triplets.add(f"zig-{vcpkg_machine}-linux-static")
             triplets.add(f"zig-{vcpkg_machine}-linux-dynamic")
 
+    # Dynamic filc triplets: Fil-C only exists for linux/x86_64
+    triplets.add("filc-x64-linux-static")
+    triplets.add("filc-x64-linux-dynamic")
+
     return triplets
 
 
@@ -101,6 +105,11 @@ def detect_triplet(vcpkg_bin_path: str, sbt_triplet_path: str, addon_triplet_pat
         # the musl check below, since zig always forces libc=musl.
         if builder.build_compiler == "zig":
             prefix = "zig-"
+        elif builder.build_compiler == "filc":
+            # Same reasoning as zig: a self-contained toolchain whose deps must be
+            # built with it, and which forces libc=musl — so it must win over the
+            # musl suffix branch below.
+            prefix = "filc-"
         elif builder.libc == "musl" and builder.build_platform == "linux":
             suffix = "-musl"
 
@@ -136,6 +145,11 @@ def is_musl_triplet(triplet: str) -> bool:
 def is_zig_triplet(triplet: str) -> bool:
     """Check if the triplet is a dynamically-generated zig triplet."""
     return triplet.startswith("zig-") and ("-linux-static" in triplet or "-linux-dynamic" in triplet)
+
+
+def is_filc_triplet(triplet: str) -> bool:
+    """Check if the triplet is a dynamically-generated Fil-C triplet."""
+    return triplet in ("filc-x64-linux-static", "filc-x64-linux-dynamic")
 
 
 ###############################################################################
@@ -235,6 +249,32 @@ def generate_zig_triplet_content(machine: str, linkage: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def generate_filc_triplet_content(linkage: str) -> str:
+    """
+    Generate the content of a Fil-C triplet .cmake file.
+    linkage: "static" or "dynamic".
+    Chains filc-toolchain.cmake, which reads FILC_PATH from the environment
+    (exported by vcpkg/install.py).
+    """
+    filc_toolchain_path = os.path.join(
+        builder.sbt_path, "vcpkg", "toolchains", "filc-toolchain.cmake"
+    ).replace("\\", "/")
+
+    lines = [
+        f"# Auto-generated Fil-C triplet ({linkage})",
+        "set(CMAKE_SYSTEM_PROCESSOR x86_64)",
+        "set(VCPKG_TARGET_ARCHITECTURE x64)",
+        f"set(VCPKG_CRT_LINKAGE {linkage})",
+        f"set(VCPKG_LIBRARY_LINKAGE {linkage})",
+        "set(VCPKG_CMAKE_SYSTEM_NAME Linux)",
+        'set(CMAKE_C_FLAGS "-fPIC" CACHE STRING "" FORCE)',
+        'set(CMAKE_CXX_FLAGS "-fPIC" CACHE STRING "" FORCE)',
+        f'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "{filc_toolchain_path}")',
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
 def generate_dynamic_triplet(overlay_dir: str, triplet: str) -> str:
     """
     If the triplet is a dynamically-generated one (musl or zig),
@@ -257,6 +297,15 @@ def generate_dynamic_triplet(overlay_dir: str, triplet: str) -> str:
         with open(triplet_path, "w") as f:
             f.write(content)
         logger.info(f"generated dynamic musl triplet at: {triplet_path}")
+        return triplet_path
+
+    if is_filc_triplet(triplet):
+        linkage = "static" if triplet.endswith("-static") else "dynamic"
+        content = generate_filc_triplet_content(linkage)
+        triplet_path = os.path.join(overlay_dir, f"{triplet}.cmake")
+        with open(triplet_path, "w") as f:
+            f.write(content)
+        logger.info(f"generated dynamic filc triplet at: {triplet_path}")
         return triplet_path
 
     if is_zig_triplet(triplet):

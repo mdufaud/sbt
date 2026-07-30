@@ -91,6 +91,19 @@ def _build_gnu_triplet(machine, vendor, libc="gnu"):
     return "{}-{}".format(machine, op_system)
 
 ###############################################################################
+# Fil-C toolchain
+###############################################################################
+
+def get_filc_root():
+    """Get the Fil-C installation root (the dir holding build/ and pizfix/)."""
+    return utils.get_opt("FILC_PATH", "")
+
+def get_filc_bin(name):
+    """Path to a binary inside the Fil-C toolchain, or "" when FILC_PATH is unset."""
+    root = get_filc_root()
+    return os.path.join(root, "build", "bin", name) if root else ""
+
+###############################################################################
 # Compiler version detection
 ###############################################################################
 
@@ -127,6 +140,18 @@ def _detect_compiler_major_version(compiler, machine=None, libc="gnu"):
             if result.returncode == 0:
                 # zig is pre-1.0: breaking changes ride the minor, so keep major.minor
                 return ".".join(result.stdout.strip().split(".")[:2])
+        elif compiler == "filc":
+            clang = get_filc_bin("clang")
+            if clang and os.path.isfile(clang):
+                result = subprocess.run([clang, "--version"], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    # "clang version 20.1.8 (Fil-C 0.681 git@...)": the clang version is
+                    # shared with upstream, the Fil-C one is what identifies the toolchain.
+                    # It is pre-1.0, so keep major.minor like zig.
+                    import re
+                    match = re.search(r"Fil-C\s+(\d+\.\d+)", result.stdout)
+                    if match:
+                        return match.group(1)
         elif compiler == "ndk":
             ndk_root = os.getenv("ANDROID_NDK_PATH", "")
             if ndk_root:
@@ -344,6 +369,12 @@ def get_libc():
     libc = utils.get_opt("libc", "gnu").lower()
     if libc not in architectures.LIBCS:
         raise SystemExit("unknown libc: {}".format(libc))
+    # Self-contained toolchains carry their own musl sysroot: zig bundles musl,
+    # Fil-C ships the pizfix. Resolved here rather than in verify_args so that
+    # build_path — computed at import time — names the libc actually linked.
+    # verify_args still warns when the user explicitly asked for another one.
+    if get_compiler() in architectures.MUSL_ONLY_COMPILERS:
+        return "musl"
     return libc
 
 def get_cpu():
@@ -647,7 +678,6 @@ def _force_static_no_sanitizers(sanitizer_label, display_label):
 
 def verify_args(app):
     global build_static_libs
-    global libc
     ret = True
     if is_msys() and not is_msys_mingw():
         logger.error("msys2 supported for mingw64 only")
@@ -682,10 +712,25 @@ def verify_args(app):
         logger.error("hardware-assisted address sanitizer (hwasan) requires arm64 machine, got {}".format(build_machine))
         ret = False
 
-    if build_compiler == "zig":
-        if libc != "musl":
-            logger.warning("gnu libc is not supported with zig - switching to musl")
-            libc = "musl"
+    # get_libc() already resolved these toolchains to musl so that build_path
+    # names the right libc; only tell the user their explicit choice was dropped.
+    if build_compiler in architectures.MUSL_ONLY_COMPILERS:
+        asked_libc = utils.get_opt("libc", "").lower()
+        if asked_libc and asked_libc != "musl":
+            logger.warning("{} libc is not supported with {} - using musl".format(asked_libc, build_compiler))
+
+    if build_compiler == "filc":
+        filc_root = get_filc_root()
+        if not filc_root or not os.path.isfile(get_filc_bin("clang++")):
+            logger.error("FILC_PATH is not set or does not hold build/bin/clang++")
+            ret = False
+        if build_platform != "linux" or build_machine != "x86_64":
+            logger.error("Fil-C only supports linux/x86_64, got {}/{}".format(build_platform, build_machine))
+            ret = False
+        # Fil-C is itself the memory-safety mechanism: its runtime owns the heap
+        # and stack layout, which no sanitizer runtime can instrument.
+        if not _check_unsupported_sanitizers("Fil-C"):
+            ret = False
 
     if build_compiler == "ndk":
         ndk_root = get_ndk_root()

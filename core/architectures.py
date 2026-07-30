@@ -8,10 +8,12 @@ import shutil
 # Modes are NOT defined here: they are project-owned (app.modes allowlist +
 # mode-<x>-* conf keys), consumed via the "mode-" selector prefix.
 PLATFORMS = ("linux", "windows", "web", "android")
-COMPILERS = ("gcc", "clang", "mingw", "em", "ndk", "zig")
+COMPILERS = ("gcc", "clang", "mingw", "em", "ndk", "zig", "filc")
 LIBTYPES = ("static", "shared")
 LIBCS = ("gnu", "musl")          # user-selectable libc
 ANDROID_LIBC = "bionic"          # forced when platform=android
+# Toolchains shipping their own musl sysroot: the libc is not user-selectable.
+MUSL_ONLY_COMPILERS = ("zig", "filc")
 CROSS_STATES = ("native", "cross")
 
 machine_aliases = {

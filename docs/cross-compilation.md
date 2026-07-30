@@ -13,6 +13,7 @@
 | Windows | `make platform=windows` | x86_64-w64-mingw32-gcc | `x64-mingw-dynamic` |
 | Emscripten | `make compiler=em` | emcc/em++ | `wasm32-emscripten-threads` |
 | Android | `make platform=android` | NDK clang | `arm64-android` |
+| Fil-C | `make compiler=filc` | clang (Fil-C fork) | `x64-linux-musl` |
 
 ## When is it cross-compilation?
 
@@ -199,6 +200,46 @@ Single `zig cc` command for cross-compilation. Forces musl libc.
 ```bash
 make compiler=zig machine=aarch64
 ```
+
+### Fil-C
+
+[Fil-C](https://fil-c.org/) is a clang fork that makes C/C++ memory-safe at runtime: every
+out-of-bounds access or use-after-free aborts with a `filc panic` pointing at the exact
+file:line:column — a correctness lens that composes with neither ASan nor Valgrind but catches
+what they miss. Forces musl libc, like Zig. Linux/x86_64 only.
+
+```bash
+mkdir -p ~/apt/filc && cd ~/apt/filc
+curl -fLO https://github.com/pizlonator/fil-c/releases/download/v0.681/filc-0.681-linux-x86_64.tar.xz
+tar xf filc-0.681-linux-x86_64.tar.xz
+cd filc-0.681-linux-x86_64 && ./setup.sh   # needs patchelf
+
+export FILC_PATH=~/apt/filc/filc-0.681-linux-x86_64
+make m=util test=1 compiler=filc
+make itest m=util compiler=filc
+```
+
+Newer releases: [github.com/pizlonator/fil-c/releases](https://github.com/pizlonator/fil-c/releases).
+
+Toolchain facts:
+- Binaries are `build/bin/clang{,++}` — plain clang fork. Sysroot (the "pizfix": musl libc,
+  libc++, `libpizlo.so` GC runtime) is found by walking `build/bin/../../pizfix/`, so no
+  `--sysroot`/`--target` flag is wanted.
+- No `llvm-ar`/`llvm-ranlib` shipped — host binutils `ar`/`ranlib`/`ld` handle its ELF objects.
+  Static `.a` and shared `.so` linking both verified.
+- Version detection: `clang --version` contains `Fil-C <ver>`; `-dumpversion` gives the underlying
+  clang version, not the Fil-C one.
+- vcpkg builds deps with it fine via a chainload toolchain — no port patches needed. SIMD
+  intrinsics and runtime dispatch (e.g. simdjson's AVX-512 kernel) work.
+- Resolves `libc=musl` internally via `architectures.MUSL_ONLY_COMPILERS`, so artifacts land under
+  `build/x86_64-linux-musl/filc-<ver>/...`; an explicit `libc=gnu` is overridden (`verify_args`
+  warns).
+- Sanitizers are rejected — Fil-C's runtime owns the heap and stack layout, so nothing can
+  instrument underneath it.
+
+Portability trap: **`pthread_t` is a pointer** (`__pthread *`) under Fil-C, an integer on
+glibc/musl/mingw. Any code doing arithmetic or integer casts on it breaks; memcpy into a
+`uint64_t` is the portable fix.
 
 ## Musl libc
 

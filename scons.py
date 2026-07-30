@@ -274,6 +274,9 @@ elif compiler == "mingw":
 elif compiler == "zig":
     from site_scons.sbt.scons.compilers import zig as compiler_zig
     compiler_zig.load_in_env(base_env)
+elif compiler == "filc":
+    from site_scons.sbt.scons.compilers import filc as compiler_filc
+    compiler_filc.load_in_env(base_env)
 elif compiler == "em":
     from site_scons.sbt.scons.compilers import emscripten as compiler_emscripten
     compiler_emscripten.load_in_env(base_env)
