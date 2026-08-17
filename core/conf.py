@@ -37,6 +37,7 @@ _NON_FLAG_CONF_KEYS = frozenset([
     "conditional-env", "conditional-depends",
     "allow-platforms", "exclude-platforms",
     "allow-link-shared", "allow-link-static",
+    "external", # self injected whitelist
 ])
 
 _BASE_CONF_KEYS = _NON_FLAG_CONF_KEYS | frozenset(CONF_FLAG_ENV)

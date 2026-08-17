@@ -74,13 +74,28 @@ def add_combination_app_conf_to_env(env, app, default_app_conf_to_get):
     For each configuration dimension (platform, libtype, mode, compiler, libc)
     and each combination of subsequent dimensions, call add_env_app_conf.
     This allows app.py to declare e.g. linux_static_libs = [...].
+
+    Also tries each combination suffixed with the libtype/libc dimensions
+    (e.g. gcc_shared_libs), mirroring the "gcc-shared-*"/"linux-musl-*"
+    module conf options from compute_modules_options — those selectors are
+    not reachable through dimension order alone.
     """
+    suffix_dims = tuple(t for t in default_app_conf_to_get
+                        if t in architectures.LIBTYPES
+                        or t in architectures.LIBCS
+                        or t == architectures.ANDROID_LIBC)
     for idx, app_config in enumerate(default_app_conf_to_get, start=1):
         keys = [app_config]
-        scons_utils.add_env_app_conf(app, env, *keys)
+        __add_env_app_conf_suffixed(app, env, keys, suffix_dims)
         for sub_app_config in default_app_conf_to_get[idx:]:
             keys.append(sub_app_config)
-            scons_utils.add_env_app_conf(app, env, *keys)
+            __add_env_app_conf_suffixed(app, env, keys, suffix_dims)
+
+def __add_env_app_conf_suffixed(app, env, keys, suffix_dims):
+    scons_utils.add_env_app_conf(app, env, *keys)
+    for dim in suffix_dims:
+        if dim not in keys:
+            scons_utils.add_env_app_conf(app, env, *(keys + [dim]))
 
 
 ###############################################################################

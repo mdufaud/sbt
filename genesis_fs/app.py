@@ -51,14 +51,14 @@ defines = []
 ## mode specifics
 modes = ["debug", "release"]
 
-debug_flags = ["-g", "-Og"]
-release_flags = ["-O3"]
+mode_debug_flags = ["-g", "-Og"]
+mode_release_flags = ["-O3"]
 
 ## gcc specifics
 
 gcc_flags = ["-Werror"]
 
-gcc_release_link = ['-s']
+mode_release_gcc_link = ['-s']
 
 gcc_link = [
     "-Wl,-z,defs",
