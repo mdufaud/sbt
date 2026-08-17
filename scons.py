@@ -539,11 +539,13 @@ def after_build():
     scons_utils.build_print_status(success, failures_message, build_start_time)
     if is_dry_run:
         return
-    if success and hasattr(app, "on_build_success"):
+    if success:
         scons_utils.build_print_built(
             build_state.generated_bins, build_state.generated_demos, build_state.generated_tests
         )
-        app.on_build_success(build_modules, builder)
+        # optional user callback, independent from the built-artefacts report
+        if hasattr(app, "on_build_success"):
+            app.on_build_success(build_modules, builder)
     elif hasattr(app, "on_build_fail"):
         app.on_build_fail(build_modules, builder)
     builder.symlink_build()
