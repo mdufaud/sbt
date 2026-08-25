@@ -32,8 +32,8 @@ def load_in_env(env):
         CXX = "em++",
         AR = "emar",
         RANLIB = "emranlib",
-        LINK = "emcc",
     )
+    # LINK is left to smart_link: C++ objects (all sihd code) link with em++, pulling in libc++.
 
     emscripten_conf = os.path.join(os.getenv("HOME", ""), ".emscripten")
     if os.path.isfile(emscripten_conf):
