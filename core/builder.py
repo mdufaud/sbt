@@ -668,7 +668,11 @@ def _check_unsupported_sanitizers(compiler_label):
     return ok
 
 def _force_static_no_sanitizers(sanitizer_label, display_label):
-    """Reject sanitizers and force static libs for compilers that require them (ndk/mingw/em)."""
+    """Reject sanitizers and force static libs for compilers that require them.
+
+    Currently only Emscripten (no dynamic linking). The Android NDK supports
+    shared module libs, so it does NOT force static; mingw builds shared DLLs.
+    """
     global build_static_libs
     ok = _check_unsupported_sanitizers(sanitizer_label)
     if not build_static_libs:
@@ -737,7 +741,10 @@ def verify_args(app):
         if not ndk_root or not os.path.isdir(ndk_root):
             logger.error("ANDROID_NDK_PATH is not set or does not exist")
             ret = False
-        if not _force_static_no_sanitizers("Android NDK", "Android NDK"):
+        # The Android NDK supports shared module libs, so honor the `static`
+        # flag (build_static_libs) instead of forcing static. Only reject
+        # sanitizers, which the NDK runtime cannot instrument (mirror mingw).
+        if not _check_unsupported_sanitizers("Android NDK"):
             ret = False
 
     if build_compiler == "mingw":
