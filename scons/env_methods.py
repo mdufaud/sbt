@@ -155,7 +155,19 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
             ndk_version=ndk_version,
             sign_config=sign_config,
         )
+        # In a shared (non-static) build the module libs are separate .so that
+        # the entry links against via DT_NEEDED. Android only ships real .so in
+        # the APK, so bundle every module .so too: Android's app namespace
+        # resolves DT_NEEDED against the extracted native lib dir, so jniLibs is
+        # all the dynamic linker needs to load the module chain when
+        # System.loadLibrary(entry) runs.
+        module_sos = []
+        if not builder.build_static_libs:
+            module_sos = scons_android.collect_module_sos(
+                builder.build_lib_path, list(apk_env["LIBS"])
+            )
         scons_android.copy_so_to_jnilibs(staging_dir, str(source[0]), sanitized_name)
+        scons_android.copy_module_sos_to_jnilibs(staging_dir, module_sos)
         return scons_android.build_apk(
             staging_dir, str(target[0]),
             build_type=build_type,
@@ -281,6 +293,12 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
         lib_env.Append(LINKFLAGS=_origin_rpath_flags(lib_env, builder.build_lib_path))
         if static_libs:
             _static_link_into_shared_lib(self, lib_env, static_libs)
+        # A shared Android module .so must carry the same C++ runtime as the
+        # entry .so (-static-libstdc++): Android has no system libstdc++, and a
+        # mixed static/shared STL across DSOs breaks the C++ runtime ABI. Each
+        # module .so embeds its own copy, so no STL .so needs to be bundled.
+        if builder.build_platform == "android" and not builder.build_static_libs:
+            lib_env.Append(LINKFLAGS=["-static-libstdc++"])
         lib = NoCache(lib_env.SharedLibrary(lib_path, objects, **build_kwargs))
 
     ctx.state.add_targets(src)

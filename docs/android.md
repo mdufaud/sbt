@@ -203,7 +203,7 @@ sbt provides default Android project templates in `site_scons/sbt/android/`. Whe
 2. If the module provides an override at `<module>/android/`, overlays those files on top
 3. Replaces `__SBT_*__` placeholders in all text files
 4. Compiles C++ sources into a `.so` (SharedLibrary via NDK clang)
-5. Copies the `.so` into the staged project's `jniLibs/<abi>/`
+5. Copies the entry `.so` (and, in a shared build, **every module `.so`**) into the staged project's `jniLibs/<abi>/`
 6. Runs `gradle assemble<BuildType>` (see [Build type mapping](#build-type-mapping); debug by default, `assembleRelease` for a "release-like" mode)
 7. Copies the resulting APK to the build output directory
 
@@ -220,6 +220,46 @@ staging dir, which is re-created on every build. Inside it:
   configuration cache). This avoids Gradle's single-writer lock contention
   (notably on the configuration cache) when several APKs are assembled in
   parallel (e.g. under `-j`); the heavier build/dependency caches stay shared.
+
+### Static vs shared module libraries
+
+Whether the sbt **module libraries** are linked into the APK as static archives
+or as separate shared `.so` follows the global liblink (`static=1`):
+
+- **Static (`static=1`)** — the default and recommended Android configuration.
+  Each module's `.a` is merged into the single, self-contained entry `.so`, so
+  the APK ships exactly one native library. This is what the existing release
+  APKs use.
+- **Shared (no `static=1`)** — each module lib is built as its own `.so`
+  (`lib<app>_<mod>.so`) and the entry `.so` records a `DT_NEEDED` on it. sbt
+  now **bundles every module `.so`** into `jniLibs/<abi>/` alongside the entry,
+  so Android's app namespace resolves the `DT_NEEDED` chain when
+  `System.loadLibrary(entry)` runs — no extra `System.loadLibrary` calls are
+  needed. Requires the demo/bin to be linked against the module closure it
+  actually uses (that closure is what gets bundled).
+
+```bash
+# static (single .so) — existing default
+make m=imgui platform=android machine=arm64 static=1 demo=1
+
+# shared (one .so per module, bundled)
+make m=imgui platform=android machine=arm64 demo=1
+```
+
+**C++ runtime:** Android has no system `libstdc++`, so in a shared build every
+`.so` (entry and modules) is linked with `-static-libstdc++`. This keeps each
+`.so` self-contained — no shared C++ runtime `.so` appears in `DT_NEEDED` and
+none has to be packaged. Because exceptions/RTTI state is then per-`.so`, it is
+best for module libraries to not throw exceptions *across* the `.so` boundary
+(keep the C++ ABI contained within a module); for full cross-DSO exception
+sharing you would instead use a single shared `c++` runtime, which is a larger
+change and off by default.
+
+**Module selection:** a module that cannot link shared is dropped from shared
+Android builds via `allow-link-shared` / `android-allow-link-shared` (see
+[modules.md](modules.md)). `android-allow-link-shared: False` keeps a module in
+**static** Android builds only (e.g. an imgui module that relies on shared-only
+system GL libs on desktop but links fine statically on Android).
 
 ### Build-type mapping
 

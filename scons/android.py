@@ -357,13 +357,62 @@ def _build_sign_block(sign_config):
 
 
 def copy_so_to_jnilibs(staging_dir, so_path, lib_name):
-    """Copy the built .so into the staged Gradle project's jniLibs."""
+    """Copy the built .so into the staged Gradle project's jniLibs.
+
+    `lib_name` is the sanitized demo/bin name; the destination is always
+    `lib{lib_name}.so` (the name TerminalActivity passes to System.loadLibrary).
+    """
     abi = get_abi()
     jnilibs_dir = os.path.join(staging_dir, "app", "src", "main", "jniLibs", abi)
     os.makedirs(jnilibs_dir, exist_ok=True)
     dst = os.path.join(jnilibs_dir, f"lib{lib_name}.so")
     shutil.copy2(str(so_path), dst)
     return dst
+
+
+def collect_module_sos(build_lib_path, libs):
+    """Return the shared-lib paths of the sbt module libs referenced by `libs`.
+
+    Filters `libs` down to the entries that resolve to an existing
+    `lib<name>.so` under `build_lib_path`. These are exactly the sbt module
+    libraries (including the transitive deps already folded into LIBS by
+    create_module_env); system/extlibs (android, log, GL, GLESv3, ...) live
+    outside the sbt lib dir and are dropped. Used to bundle the module .so
+    beside the entry .so in a shared (non-static) Android APK.
+    """
+    module_sos = []
+    for lib in libs:
+        if not isinstance(lib, str):
+            continue
+        so_path = os.path.join(build_lib_path, f"lib{lib}.so")
+        if os.path.isfile(so_path):
+            module_sos.append(so_path)
+    return module_sos
+
+
+def copy_module_sos_to_jnilibs(staging_dir, module_sos):
+    """Copy every module shared lib into jniLibs, preserving its .so basename.
+
+    Android's app namespace resolves DT_NEEDED against the extracted native
+    library dir, so bundling each `lib<sihd>_<mod>.so` here (beside the entry
+    .so) is all the dynamic linker needs to load the module chain when
+    System.loadLibrary(entry) runs. Missing files are skipped so a module that
+    was built static or excluded doesn't fail the APK build.
+    """
+    if not module_sos:
+        return []
+    abi = get_abi()
+    jnilibs_dir = os.path.join(staging_dir, "app", "src", "main", "jniLibs", abi)
+    os.makedirs(jnilibs_dir, exist_ok=True)
+    dsts = []
+    for so_path in module_sos:
+        src = str(so_path)
+        if not os.path.isfile(src):
+            continue
+        dst = os.path.join(jnilibs_dir, os.path.basename(src))
+        shutil.copy2(src, dst)
+        dsts.append(dst)
+    return dsts
 
 
 def stage_bridge_source(dst_path, namespace, log_tag):
