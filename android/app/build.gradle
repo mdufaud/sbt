@@ -2,9 +2,13 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+__SBT_KEYSTORE_LOADER__
+
 android {
     namespace = '__SBT_NAMESPACE__'
     compileSdk = 36
+    ndkVersion = '__SBT_NDK_VERSION__'
+    __SBT_SIGN_DECL__
 
     defaultConfig {
         applicationId = "__SBT_APP_ID__"
@@ -27,7 +31,14 @@ android {
     buildTypes {
         release {
             minifyEnabled = false
+            __SBT_SIGN_REF__
             proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'))
+            // Strip native debug symbols in release APKs (most aggressive
+            // setting). Combined with ndkVersion pinned above, this avoids AGP's
+            // "Unable to strip ... packaging them as they are" warning.
+            ndk {
+                debugSymbolLevel = 'NONE'
+            }
         }
     }
     compileOptions {

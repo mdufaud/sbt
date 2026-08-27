@@ -270,18 +270,30 @@ def check_platform(modules, platform, modules_options=None):
                 conf[key] = [dep for dep in deps if dep not in to_remove]
     return to_remove
 
-def check_linkage(modules, linkage):
+def check_linkage(modules, linkage, platform=None):
     """ @brief sanatize modules based on link mode ("static"|"shared")
         @return modules to remove
 
         "allow-link-shared": dropped from static builds (e.g. GUI modules
         needing system-only dynamic libs like libGL). "allow-link-static": inverse.
+
+        When *platform* is given, "<platform>-allow-link-shared" and
+        "<platform>-allow-link-static" override the base (unprefixed) keys for
+        that platform. This lets a module keep its default link-mode constraint
+        everywhere while carving out an exception for one target, e.g. an imgui
+        module that relies on shared-only system GL libs on desktop but links
+        fine statically on Android (NDK EGL/GLES).
     """
     to_remove = []
     for name, conf in modules.items():
-        if conf.get("allow-link-shared", False) and linkage != "shared":
+        allow_shared = conf.get("allow-link-shared", False)
+        allow_static = conf.get("allow-link-static", False)
+        if platform is not None:
+            allow_shared = conf.get(f"{platform}-allow-link-shared", allow_shared)
+            allow_static = conf.get(f"{platform}-allow-link-static", allow_static)
+        if allow_shared and linkage != "shared":
             to_remove.append(name)
-        elif conf.get("allow-link-static", False) and linkage != "static":
+        elif allow_static and linkage != "static":
             to_remove.append(name)
     for name in to_remove:
         del modules[name]

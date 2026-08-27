@@ -138,13 +138,30 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     apk_output = os_path.join(output_dir, f"{name}.apk")
     android_permissions = env['APP_MODULE_CONF'].get('android-permissions', [])
 
+    # Compute the Gradle build type from the sbt compile "mode". The mapping is a
+    # project decision declared via `android_release_modes` (a list) in app.py.
+    # The Gradle caches are kept in a single shared dir per build configuration
+    # (a sibling of lib/ and demo/, removed by `make clean`).
+    build_type = scons_android.get_gradle_build_type(ctx.app, builder.build_mode)
+    gradle_cache_dir = scons_android.get_gradle_cache_dir()
+    ndk_version = os_path.basename(ndk_root) if ndk_root else None
+    sign_config = getattr(ctx.app, "android_sign_config", None)
+
     def _stage_and_build_apk(target, source, env):
         scons_android.stage_gradle_project(
             staging_dir, name, module_android_dir, permissions=android_permissions,
             project_name=project_name,
+            gradle_cache_dir=gradle_cache_dir,
+            ndk_version=ndk_version,
+            sign_config=sign_config,
         )
         scons_android.copy_so_to_jnilibs(staging_dir, str(source[0]), sanitized_name)
-        return scons_android.build_apk(staging_dir, str(target[0]))
+        return scons_android.build_apk(
+            staging_dir, str(target[0]),
+            build_type=build_type,
+            gradle_cache_dir=gradle_cache_dir,
+            apk_name=sanitized_name,
+        )
 
     apk_cmd = apk_env.Command(apk_output, so_lib, _stage_and_build_apk)
     apk_env.AlwaysBuild(apk_cmd)

@@ -109,7 +109,7 @@ for mod in deleted_modules:
     logger.warning("module '{}' excluded from this build (platform/selector)".format(mod))
 
 # Checking module availability for the requested link mode (static/dynamic)
-deleted_modules = modules.check_linkage(build_modules, builder.liblink)
+deleted_modules = modules.check_linkage(build_modules, builder.liblink, builder.build_platform)
 for mod in deleted_modules:
     logger.warning("module '{}' cannot compile in {} link mode".format(mod, builder.liblink))
 

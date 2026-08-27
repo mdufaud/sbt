@@ -204,8 +204,80 @@ sbt provides default Android project templates in `site_scons/sbt/android/`. Whe
 3. Replaces `__SBT_*__` placeholders in all text files
 4. Compiles C++ sources into a `.so` (SharedLibrary via NDK clang)
 5. Copies the `.so` into the staged project's `jniLibs/<abi>/`
-6. Runs `gradle assembleDebug`
+6. Runs `gradle assemble<BuildType>` (see [Build type mapping](#build-type-mapping); debug by default, `assembleRelease` for a "release-like" mode)
 7. Copies the resulting APK to the build output directory
+
+The Gradle caches live under a **single directory per build configuration** — a
+sibling of `lib/` and `demo/`: `build/<triplet>/<mode>/<liblink>/gradle/`. It is
+removed by the `clean` rule (`rm -rf $(BUILD_PATH)/gradle`) and survives the
+staging dir, which is re-created on every build. Inside it:
+
+- **`build-cache/`** — the **shared** local build cache, one per configuration,
+  shared by every APK of that configuration. Gradle's build cache is safe to
+  share across concurrent builds.
+- **`<apk>/.gradle/`** — a **per-APK** Gradle project cache. Each APK is a
+  separate Gradle project, so it gets its own `.gradle` (and its own
+  configuration cache). This avoids Gradle's single-writer lock contention
+  (notably on the configuration cache) when several APKs are assembled in
+  parallel (e.g. under `-j`); the heavier build/dependency caches stay shared.
+
+### Build-type mapping
+
+Whether an sbt compile **mode** produces the stripped APK is a **project
+decision**, declared in the project's `app.py` via the `android_release_modes`
+list. Every mode listed builds `assembleRelease`; any unlisted mode builds
+`assembleDebug`. There is **no** built-in mapping in sbt, so a `release` build
+only happens for modes you opt in:
+
+```python
+# app.py
+android_release_modes = ["release"]            # mode=release -> assembleRelease
+# android_release_modes = ["release", "superReleaseToto2"]
+```
+
+```bash
+make m=imgui platform=android machine=arm64 static=1 mode=release demo=1
+```
+
+The release build type sets `ndk { debugSymbolLevel = 'NONE' }` and the
+`ndkVersion` is pinned to the installed NDK, which fixes AGP's
+`Unable to strip ... packaging them as they are` warning.
+
+### Optional APK signing
+
+By default `assembleRelease` produces an **unsigned** APK
+(`app-release-unsigned.apk`). To sign it, point `android_sign_config` at a
+gitignored `keystore.properties` file (relative to the project root, or
+absolute). sbt then injects a keystore loader + `signingConfigs { release { ... } }`
+block into the staged `app/build.gradle` and references it from the release build
+type, so the release APK is signed — **without ever writing the passwords into a
+generated file or committing them**:
+
+```python
+# app.py  (no secrets here)
+android_sign_config = "keystore.properties"
+```
+
+Copy the template and fill in the real values, then **gitignore the file**:
+
+```ini
+# keystore.properties   (do NOT commit this)
+storeFile=keystores/release.keystore   # resolved relative to this file's dir
+storePassword=CHANGE_ME
+keyAlias=release
+keyPassword=CHANGE_ME
+```
+
+A ready-to-copy template lives at `android/keystore.properties.example`. If
+`android_sign_config` is unset/empty, the placeholders resolve to empty strings
+and the release APK stays unsigned (the default). If the config points to a file
+that is missing or lacks a required key (`storeFile`, `storePassword`,
+`keyAlias`, `keyPassword`), sbt fails the build with a clear error rather than
+silently producing an unsigned APK.
+
+> **Note:** keystores and passwords are project-controlled build config. On
+> debug builds the debug APK is auto-signed by AGP; this setting only affects
+> the release build type.
 
 ### Two modes
 
@@ -223,6 +295,10 @@ sbt provides default Android project templates in `site_scons/sbt/android/`. Whe
 | `__SBT_APP_LABEL__` | Display name in launcher |
 | `__SBT_LIB_NAME__` | Shared library name (without lib prefix / .so suffix) |
 | `__SBT_ABI__` | NDK ABI string (e.g. `arm64-v8a`) |
+| `__SBT_NDK_VERSION__` | Installed NDK version (e.g. `28.0.13004108`), pinned as `ndkVersion` |
+| `__SBT_KEYSTORE_LOADER__` | Groovy loader that reads the keystore.properties file, or empty when unsigned |
+| `__SBT_SIGN_DECL__` | `signingConfigs { release { ... } }` block, or empty when unsigned |
+| `__SBT_SIGN_REF__` | `signingConfig signingConfigs.release`, or empty when unsigned |
 
 ## Module Override
 

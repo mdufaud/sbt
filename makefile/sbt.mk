@@ -372,6 +372,7 @@ clean:
 	rm -rf $(BIN_PATH)
 	rm -rf $(TEST_PATH)
 	rm -rf $(DEMO_PATH)
+	rm -rf $(BUILD_PATH)/gradle
 	rm -f $(BUILD_PATH)/compile_commands.json
 
 clean_dep:

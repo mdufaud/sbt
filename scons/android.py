@@ -5,6 +5,7 @@ Provides functions to stage a Gradle project from templates,
 replace placeholders, build a SharedLibrary, and package an APK.
 """
 
+import glob
 import os
 import shutil
 import subprocess
@@ -21,6 +22,38 @@ TEMPLATE_DIR = os.path.join(_sbt_dir, "android")
 # reuses everything after the leading segment (e.g. "android.terminal").
 TEMPLATE_NAMESPACE = "sbt.android.terminal"
 TEMPLATE_NAMESPACE_SUFFIX = TEMPLATE_NAMESPACE.split(".", 1)[1]
+
+def get_gradle_build_type(app, mode, default="debug"):
+    """Return the Gradle build type (assemble<BuildType>) for an sbt compile mode.
+
+    A project decides which of its sbt compile modes produce the stripped
+    ("release") APK by declaring them in the `android_release_modes` list of its
+    app.py, e.g.
+
+        android_release_modes = ["release"]
+        # or: android_release_modes = ["release", "superReleaseToto2"]
+
+    Every mode listed maps to the `release` Gradle build type (assembleRelease);
+    any unlisted mode falls back to `default` (debug). There is deliberately no
+    built-in mapping in sbt: a project must opt in explicitly so the mapping is
+    always its own decision.
+    """
+    release_modes = getattr(app, "android_release_modes", None)
+    if not isinstance(release_modes, (list, tuple)):
+        release_modes = []
+    return "release" if mode in release_modes else default
+
+
+def get_gradle_cache_dir():
+    """Return the base dir for the shared Gradle caches for this build config.
+
+    It is a sibling of `lib/`/`demo/` under the triplet's build_path (e.g.
+    `build/<triplet>/<mode>/<liblink>/gradle`), so a single `make clean` removes
+    every Gradle cache (see makefile/sbt.mk). All APKs built for a configuration
+    share it; Gradle keys the configuration cache per project and the local build
+    cache per input, so sharing across demos/bins is safe.
+    """
+    return os.path.join(builder.build_path, "gradle")
 
 
 def get_abi():
@@ -89,7 +122,8 @@ def load_override_config(android_dir, project_name=None):
     return defaults
 
 
-def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions=None, project_name=None):
+def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions=None, project_name=None,
+                         gradle_cache_dir=None, ndk_version=None, sign_config=None):
     """Stage a complete Gradle project from templates + optional overrides.
 
     Args:
@@ -98,6 +132,25 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
         module_android_dir: optional module-relative android/ override directory
         permissions: list of Android permission strings (e.g. ["android.permission.INTERNET"])
         project_name: app name used to derive the default Java namespace
+        gradle_cache_dir: optional base dir for the Gradle caches (the `.gradle`
+            project cache and the local build cache live under this dir). When
+            provided, the cache is kept OUTSIDE the staging dir (which is
+            re-created on every build) so it survives incremental builds; the
+            project's `make clean` wipes it. When None, no cache relocation is
+            configured.
+        ndk_version: NDK version string (e.g. "28.0.13004108") pinned via the
+            `ndkVersion` Gradle property. Pinning it to the actually-installed
+            NDK fixes AGP's "Unable to strip ... packaging them as they are"
+            warning, which happens when AGP falls back to a strip tool from a
+            non-installed NDK.
+        sign_config: optional path to a `keystore.properties` file (relative to
+            the project root, or absolute) describing how to sign the release
+            APK. When provided it adds a keystore loader + `signingConfigs {
+            release { ... } }` block to the staged app/build.gradle and
+            references it from the release build type; the secrets (passwords)
+            are read from the file at Gradle configure time so they are never
+            written into the staged build.gradle nor committed. When None, the
+            release APK is left unsigned.
     Returns:
         dict with:
             namespace (str): Java namespace
@@ -166,6 +219,13 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
         f'<uses-permission android:name="{p}" />' for p in all_permissions
     )
 
+    # Build the optional release signing config. When sign_config is the path to
+    # a (gitignored) keystore.properties file, the staged app/build.gradle gets a
+    # loader + signingConfigs.release block and the release build type references
+    # it (signed release APK). When absent, the placeholders resolve to empty so
+    # the release APK is unsigned.
+    sign_loader, sign_decl, sign_ref = _build_sign_block(sign_config)
+
     replacements = {
         "__SBT_PROJECT_NAME__": name,
         "__SBT_NAMESPACE__": config["namespace"],
@@ -176,6 +236,10 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
         "__SBT_LIB_NAME__": sanitized_name,
         "__SBT_ABI__": abi,
         "__SBT_PERMISSIONS__": permissions_xml,
+        "__SBT_NDK_VERSION__": ndk_version or "",
+        "__SBT_KEYSTORE_LOADER__": sign_loader,
+        "__SBT_SIGN_DECL__": sign_decl,
+        "__SBT_SIGN_REF__": sign_ref,
     }
 
     for root, dirs, files in os.walk(staging_dir):
@@ -183,7 +247,113 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
             filepath = os.path.join(root, f)
             _replace_placeholders(filepath, replacements)
 
+    # Point Gradle's local build cache at the build tree so it is wiped with the
+    # build. This is injected here (not from the static template) so it never
+    # produces invalid `directory = ""` when no cache dir is supplied.
+    if gradle_cache_dir:
+        _inject_build_cache_dir(os.path.join(staging_dir, "settings.gradle"),
+                                os.path.join(gradle_cache_dir, "build-cache"))
+
     return config
+
+
+def _inject_build_cache_dir(settings_path, cache_dir):
+    """Insert a `buildCache { local { directory = ... } }` block into settings.gradle."""
+    try:
+        with open(settings_path, 'r') as f:
+            content = f.read()
+    except (OSError, UnicodeDecodeError):
+        return
+    # Escape for a single-quoted Groovy string literal.
+    groovy_dir = cache_dir.replace("\\", "\\\\").replace("'", "\\'")
+    block = (
+        "\n// sbt: keep the Gradle build cache inside the build tree "
+        "(wiped by `make clean`).\n"
+        "buildCache {\n"
+        "    local {\n"
+        f"        directory = '{groovy_dir}'\n"
+        "    }\n"
+        "}\n"
+    )
+    # Insert before rootProject.name to keep `include ':app'` last.
+    marker = "rootProject.name"
+    if marker in content:
+        content = content.replace(marker, block + marker, 1)
+    else:
+        content += block
+    with open(settings_path, 'w') as f:
+        f.write(content)
+
+
+def _build_sign_block(sign_config):
+    """Return (keystore loader, signingConfigs decl, release buildType ref).
+
+    `sign_config` is the path to a `keystore.properties` file (relative to the
+    project root, or absolute). The file must define `storeFile`, `storePassword`,
+    `keyAlias` and `keyPassword`. Secrets are never written into the staged
+    build.gradle: the loader reads them from the file at Gradle configure time,
+    so they stay out of version control (gitignore the properties file). When
+    sign_config is absent/empty, all three strings are empty and the release APK
+    is left unsigned.
+    """
+    if not isinstance(sign_config, str) or not sign_config.strip():
+        return "", "", ""
+    props_path = os.path.abspath(sign_config.strip())
+    if not os.path.isfile(props_path):
+        raise ValueError(
+            f"sbt: android_sign_config points to a missing keystore properties "
+            f"file: {props_path}.\nCreate it (and gitignore it) with "
+            "storeFile/storePassword/keyAlias/keyPassword, e.g.:\n"
+            "    storeFile=keystores/release.keystore\n"
+            "    storePassword=<pwd>\n"
+            "    keyAlias=release\n"
+            "    keyPassword=<pwd>\n"
+        )
+    required = ["storeFile", "storePassword", "keyAlias", "keyPassword"]
+    props = {}
+    try:
+        with open(props_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    props[k.strip()] = v.strip()
+    except OSError as e:
+        raise ValueError(f"sbt: failed to read android_sign_config file {props_path}: {e}")
+    missing = [k for k in required if not props.get(k)]
+    if missing:
+        raise ValueError(
+            f"sbt: {props_path} is missing required keystore properties: "
+            f"{', '.join(missing)}"
+        )
+
+    def _g(v):
+        v = "" if v is None else str(v)
+        # Escape backslash and single quote for a single-quoted Groovy literal.
+        return v.replace("\\", "\\\\").replace("'", "\\'")
+
+    loader = (
+        "def keystorePropertiesFile = file('" + _g(props_path) + "')\n"
+        "def keystoreProperties = new Properties()\n"
+        "keystoreProperties.load(new FileInputStream(keystorePropertiesFile))"
+    )
+    # storeFile is resolved relative to the properties file's directory, so the
+    # keystore path in keystore.properties behaves predictably regardless of the
+    # (freshly re-created) staging dir.
+    decl = (
+        "signingConfigs {\n"
+        "        release {\n"
+        "            storeFile file(new File(keystorePropertiesFile.parentFile, keystoreProperties['storeFile']))\n"
+        "            storePassword keystoreProperties['storePassword']\n"
+        "            keyAlias keystoreProperties['keyAlias']\n"
+        "            keyPassword keystoreProperties['keyPassword']\n"
+        "        }\n"
+        "    }"
+    )
+    ref = "signingConfig signingConfigs.release"
+    return loader, decl, ref
 
 
 def copy_so_to_jnilibs(staging_dir, so_path, lib_name):
@@ -214,9 +384,27 @@ def stage_bridge_source(dst_path, namespace, log_tag):
     return dst_path
 
 
-def build_apk(staging_dir, apk_output_path):
-    """Run gradle assembleDebug and copy the APK to the output path.
+def build_apk(staging_dir, apk_output_path, build_type="debug", gradle_cache_dir=None, apk_name=None):
+    """Run gradle assemble<BuildType> and copy the APK to the output path.
 
+    Args:
+        staging_dir: staged Gradle project directory
+        apk_output_path: destination path for the built APK
+        build_type: Gradle build type ("debug" or "release", etc.); appended to
+            `assemble`. Build types mapped from release-like sbt modes produce
+            the stripped APK (e.g. assembleRelease).
+        gradle_cache_dir: base dir for the Gradle caches for this build
+            configuration (a sibling of `lib/`/`demo/`): the shared local
+            build-cache (`build-cache/`) is injected into the staged
+            settings.gradle and lives here. It is inside the build tree and is
+            wiped by `make clean`, and survives the staging dir being rebuilt.
+            When None, no cache relocation is configured.
+        apk_name: the APK name used to scope this build's own `.gradle` project
+            cache under gradle_cache_dir. Each APK gets its own `.gradle` so that
+            parallel `assemble` invocations (different APKs, e.g. under `-j`) do
+            not contend on Gradle's single-writer locks (notably the
+            configuration cache). The heavier build cache and dependency cache
+            remain shared across APKs of the configuration.
     Returns 0 on success, non-zero on failure.
     """
     gradle_env = os.environ.copy()
@@ -225,24 +413,33 @@ def build_apk(staging_dir, apk_output_path):
     if java_home:
         gradle_env["JAVA_HOME"] = java_home
 
-    logger.info(f"building APK: {os.path.basename(apk_output_path)}")
-    ret = subprocess.call(
-        ["gradle", "assembleDebug"],
-        cwd=staging_dir,
-        env=gradle_env,
-    )
+    project_cache_dir = None
+    if gradle_cache_dir:
+        os.makedirs(gradle_cache_dir, exist_ok=True)
+        # Per-APK project cache: each APK is a separate Gradle project and uses
+        # its own `.gradle`, so parallel APK builds don't fight over the
+        # configuration-cache lock (the shared build-cache stays concurrency-safe).
+        if apk_name:
+            project_cache_dir = os.path.join(gradle_cache_dir, apk_name, ".gradle")
+            os.makedirs(project_cache_dir, exist_ok=True)
+
+    logger.info(f"building APK: {os.path.basename(apk_output_path)} ({build_type})")
+    cmd = ["gradle", f"assemble{build_type.capitalize()}"]
+    if project_cache_dir:
+        cmd += ["--project-cache-dir", project_cache_dir]
+    ret = subprocess.call(cmd, cwd=staging_dir, env=gradle_env)
     if ret != 0:
-        logger.error("gradle assembleDebug failed")
+        logger.error(f"gradle assemble{build_type.capitalize()} failed")
         return ret
 
-    gradle_apk = os.path.join(
-        staging_dir, "app", "build", "outputs", "apk", "debug", "app-debug.apk"
-    )
-    if not os.path.isfile(gradle_apk):
-        logger.error(f"APK not found: {gradle_apk}")
+    gradle_apks = glob.glob(os.path.join(
+        staging_dir, "app", "build", "outputs", "apk", build_type, "*.apk"
+    ))
+    if not gradle_apks:
+        logger.error(f"APK not found under app/build/outputs/apk/{build_type}")
         return 1
 
     os.makedirs(os.path.dirname(apk_output_path), exist_ok=True)
-    shutil.copy2(gradle_apk, apk_output_path)
+    shutil.copy2(gradle_apks[0], apk_output_path)
     logger.info(f"APK built: {apk_output_path}")
     return 0
