@@ -120,7 +120,10 @@ def _detect_compiler_major_version(compiler, machine=None, libc="gnu"):
                 cmd = "gcc"
             result = subprocess.run([cmd, "-dumpversion"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
-                return result.stdout.strip().split(".")[0]
+                # distro-patched gcc appends a suffix ("13-win32" on debian mingw)
+                import re
+                match = re.match(r"\d+", result.stdout.strip().split(".")[0])
+                return match.group(0) if match else ""
         elif compiler == "clang":
             result = subprocess.run(["clang", "--version"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
