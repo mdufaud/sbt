@@ -1,10 +1,14 @@
-from os.path import dirname, realpath, basename, isfile, abspath, isdir
+from os.path import dirname, realpath, basename, isfile, abspath, isdir, join
 import sys
 import importlib.util
 from os import getenv, environ
 
 # root/site_scons/sbt/core/loader.py -> root/site_scons
-__sbt_root_path = dirname(dirname(dirname(realpath(__file__))))
+# abspath, not realpath: the owning project is the one whose site_scons/sbt
+# we were loaded through — a symlinked site_scons/sbt (test scaffolds,
+# SBT_UNDER_TEST) must keep resolving app.py in that project, exactly like
+# builder's abspath-derived build_root_path does.
+__sbt_root_path = dirname(dirname(dirname(abspath(__file__))))
 
 # root/site_scons -> root
 __project_root_path = dirname(__sbt_root_path)
@@ -15,7 +19,7 @@ sys.path.append(__project_root_path)
 import re
 
 from sbt.core import logger
-from site_scons.sbt.core import utils
+from sbt.core import utils
 
 def __import_module_no_bytecode(module_name):
     """
@@ -31,17 +35,18 @@ def __import_module_no_bytecode(module_name):
     finally:
         sys.dont_write_bytecode = before
 
-def __import_from_path(file_path):
+def __import_from_path(file_path, base_path=None):
     """
     Import a module from a file path without writing bytecode files.
     Supports both absolute and relative paths, including subdirectories.
+    Relative paths resolve against *base_path* (default: the project root).
     """
     before = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
-        # If path is relative, resolve it relative to project root
+        # If path is relative, resolve it relative to the given base
         if not file_path.startswith('/'):
-            file_path = abspath(__project_root_path + '/' + file_path)
+            file_path = abspath((base_path or __project_root_path) + '/' + file_path)
         else:
             file_path = abspath(file_path)
         if not isfile(file_path):
@@ -82,16 +87,18 @@ def load_env():
 
     return env_module
 
-def _process_includes(app):
+def _process_includes(app, site_scons_path=None):
     """
     Process app.includes: load each file and merge its public attributes into the app module.
-    Include paths are relative to the site_scons/ directory.
+    Include paths are relative to the *site_scons_path* directory
+    (default: the owning project's site_scons/).
 
     Two-phase processing:
       1. Merge all public attributes from each include into the app module
       2. Call configure(app) on includes that define it, allowing them to
          compute values that depend on app-level attributes (name, version, ...)
     """
+    site_scons_path = site_scons_path or __sbt_root_path
     if getattr(app, '_includes_processed', False):
         return
     includes = getattr(app, "includes", [])
@@ -99,7 +106,7 @@ def _process_includes(app):
     # phase 1: merge static attributes
     for include_path in includes:
         if not include_path.startswith('/'):
-            abs_path = abspath(__sbt_root_path + '/' + include_path)
+            abs_path = abspath(site_scons_path + '/' + include_path)
         else:
             abs_path = include_path
         try:
@@ -120,7 +127,8 @@ def _process_includes(app):
             logger.debug(f"configured '{include_path}'")
     app._includes_processed = True
 
-def _validate_app(app):
+def _validate_app(app, project_root=None):
+    project_root = project_root or __project_root_path
     name = getattr(app, 'name', None)
     if not name:
         raise ValueError("app.py: 'name' is required")
@@ -129,7 +137,7 @@ def _validate_app(app):
             f"app.py: 'name' must contain only letters, digits, hyphens and underscores (got: {name!r})"
         )
     modules_path = getattr(app, 'modules_path', "")
-    if modules_path and not isdir(abspath(__project_root_path + '/' + modules_path)):
+    if modules_path and not isdir(abspath(project_root + '/' + modules_path)):
         raise ValueError(f"app.py: modules_path '{modules_path}' does not exist")
     if not isinstance(getattr(app, 'modules', None), dict):
         raise ValueError("app.py: 'modules' dict is required")
@@ -153,4 +161,17 @@ def load_app():
     from sbt.core import architectures
     architectures.register_machines(getattr(app, "architectures", None))
     architectures.register_machines(getattr(app, "extra_machines", None))
+    return app
+
+
+def load_app_from_path(file_path, project_root=None):
+    """Load an app.py from an arbitrary path with the same treatment as the
+    consuming project's own: include expansion (resolved against
+    <project_root>/site_scons/) and validation. The single loader for
+    dependency projects' app.py — consumers and dependencies cannot diverge.
+    """
+    root = abspath(project_root) if project_root else __project_root_path
+    app = __import_from_path(file_path, base_path=root)
+    _process_includes(app, site_scons_path=join(root, "site_scons"))
+    _validate_app(app, project_root=root)
     return app

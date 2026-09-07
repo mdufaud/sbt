@@ -13,9 +13,9 @@ from os import path as os_path
 from sbt.core import builder
 from sbt.core import architectures
 from sbt.core import conf as sbt_conf
-from site_scons.sbt.build import modules as build_modules_util
-from site_scons.sbt.scons import utils as scons_utils
-from site_scons.sbt.scons import cpp_modules as scons_cpp_modules
+from sbt.build import modules as build_modules_util
+from sbt.scons import utils as scons_utils
+from sbt.scons import cpp_modules as scons_cpp_modules
 
 
 ###############################################################################
@@ -50,18 +50,6 @@ def compute_modules_options(build_platform, libtype, build_mode, compiler, _buil
     to_append += [f"{opt}-{libc}" for opt in options if opt != libc]
     options += to_append
     return options
-
-
-def get_compilation_options(conf, key, modules_options):
-    """Collect per-option values from *conf* for *key*.
-
-    Iterates over *modules_options* and concatenates any matching list found
-    under key "{option}-{key}" in *conf*.
-    """
-    ret = []
-    for option in modules_options:
-        ret += conf.get(f"{option}-{key}", [])
-    return ret
 
 
 ###############################################################################
@@ -107,7 +95,7 @@ def create_module_env(conf, ctx,
                       do_inherit_depends_defines=False,
                       do_inherit_depends_links=False,
                       do_inherit_depends_flags=False,
-                      do_inherit_depends_generated_libs=False):
+                      do_inherit_depends_generated_libs=True):
     """Create a fully configured SCons environment for a specific module.
 
     Clones ctx.base_env and enriches it with the module's libraries, compiler
@@ -141,7 +129,7 @@ def create_module_env(conf, ctx,
     # Keep module-local libraries before transitive exports so static link order
     # remains correct on platforms like MinGW.
     libs = build_modules_util.get_module_libs(ctx.build_modules, modname)
-    libs += get_compilation_options(conf, "libs", modules_options)
+    libs += sbt_conf.collect_values(conf, "libs", modules_options)
     libs += conf.get("_resolved_export_libs", [])
     if builder.libc == "musl":
         libs = [lib for lib in libs if lib not in architectures.musl_excluded_libs]
@@ -157,7 +145,7 @@ def create_module_env(conf, ctx,
         if base in _export_keys:
             values += conf.get(f"_resolved_export_{base}", [])
         values += conf.get(base, [])
-        values += get_compilation_options(conf, base, modules_options)
+        values += sbt_conf.collect_values(conf, base, modules_options)
         append_values[env_var] = values
 
     # --- Inherited values from dependency modules ---

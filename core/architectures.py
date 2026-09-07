@@ -132,6 +132,28 @@ def get_pacman_arch(machine: str) -> str:
     return _pacman_arch_map.get(normalize_machine(machine), machine)
 
 
+# Debian arch names per SBT machine name ("any" fallback: dpkg accepts it,
+# lintian flags it — better than guessing a wrong binary arch).
+_deb_arch_map = {
+    "x86_64": "amd64",
+    "arm64": "arm64",
+    "arm32": "armhf",
+    "x86": "i386",
+    "i386": "i386",
+    "riscv64": "riscv64",
+    "riscv32": "riscv32",
+    "ppc64le": "ppc64el",
+    "s390x": "s390x",
+    "loongarch64": "loongarch64",
+    "mips64el": "mips64el",
+}
+
+
+def get_deb_arch(machine: str) -> str:
+    """Return the Debian architecture for the given SBT machine name."""
+    return _deb_arch_map.get(normalize_machine(machine), "any")
+
+
 def get_meson_info(machine: str) -> dict:
     """Get meson cross-compilation info (cpu_family, cpu, endian) for the given machine."""
     return get_config(machine).get("meson", {})

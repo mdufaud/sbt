@@ -3,17 +3,15 @@ import glob
 import shutil
 import subprocess
 import os
+import sys
 from os.path import join, dirname, abspath
 
-try:
-    from sbt.core import loader
-    from sbt.core import architectures
-except ImportError:
-    from . import loader
-    from . import architectures
+from sbt.core import loader
+from sbt.core import architectures
+from sbt.core import options
 
-from site_scons.sbt.build import modules as sbt_modules
-from site_scons.sbt.core import utils
+from sbt.build import modules as sbt_modules
+from sbt.core import utils
 from sbt.core import logger
 
 loader.load_env()
@@ -156,14 +154,9 @@ def _detect_compiler_major_version(compiler, machine=None, libc="gnu"):
                     if match:
                         return match.group(1)
         elif compiler == "ndk":
-            ndk_root = os.getenv("ANDROID_NDK_PATH", "")
-            if ndk_root:
-                source_props = os.path.join(ndk_root, "source.properties")
-                if os.path.isfile(source_props):
-                    with open(source_props) as f:
-                        for line in f:
-                            if line.startswith("Pkg.Revision"):
-                                return line.split("=")[1].strip().split(".")[0]
+            revision = _read_ndk_revision()
+            if revision:
+                return revision.split(".")[0]
     except Exception:
         pass
     return ""
@@ -416,9 +409,30 @@ def get_host_platform():
         return "linux"
     return platform.system().lower()
 
+def resolve_static_libs(compiler, static):
+    """Force static libs for toolchains without dynamic linking (Emscripten).
+
+    Called at import time — like the musl resolution in get_libc — so that
+    build_path names the libtype actually produced. verify_args only
+    validates and must not mutate resolved state.
+    """
+    if compiler == "em" and not static:
+        logger.warning("not supported Emscripten without static libs - switching to static libs")
+        return True
+    return static
+
+def compute_build_path(root, machine, platform, libc, compiler_version, mode, static_libs):
+    """The single build path formula — shared with build.sbt_deps so external
+    dependencies resolve their artifacts at the exact location the dependency
+    build wrote them to."""
+    liblink = "static" if static_libs else "shared"
+    return join(root, "build", "{}-{}-{}".format(machine, platform, libc), compiler_version, mode, liblink)
+
 ###############################################################################
 # Build initialisation
 ###############################################################################
+
+options.warn_unknown_argv_options(sys.argv)
 
 # compilation
 libc = get_libc()
@@ -430,7 +444,7 @@ host_libc = get_host_libc()
 host_machine = get_host_machine()
 build_machine = get_machine()
 build_mode = get_compile_mode()
-build_static_libs = is_static_libs()
+build_static_libs = resolve_static_libs(build_compiler, is_static_libs())
 liblink = "static" if build_static_libs else "shared"
 
 build_asan = is_address_sanitizer()
@@ -474,8 +488,11 @@ def set_modules_path(modules_path):
 build_entry_path = join(build_root_path, "build")
 # last build link path
 build_last_link_path = join(build_entry_path, "last")
-# build full path: <machine>-<platform>-<libc>/<compiler>-<version>/<mode>/<static|dynamic>
-build_path = join(build_entry_path, f"{build_machine}-{build_platform}-{libc}", build_compiler_version, build_mode, liblink)
+# build full path: <machine>-<platform>-<libc>/<compiler>-<version>/<mode>/<static|shared>
+build_path = compute_build_path(
+    build_root_path, build_machine, build_platform, libc,
+    build_compiler_version, build_mode, build_static_libs,
+)
 # distribution path inside the build variant dir
 build_dist_path = join(build_path, "dist")
 
@@ -516,13 +533,21 @@ _host_native_machines = {
 def host_can_run(machine):
     return machine in _host_native_machines.get(host_machine, [host_machine])
 
+# Binary filename suffixes per build platform. Bins/demos get the "bin"
+# suffix, tests the "test" one: web binaries are the browser entry (.html)
+# while web tests run under node (.js); windows gets ".exe" for both.
+_PLATFORM_BIN_EXTS = {
+    "windows": {"bin": ".exe", "test": ".exe"},
+    "web": {"bin": ".html", "test": ".js"},
+}
+
+def get_bin_ext():
+    """Filename suffix for built binaries/demos ("" on linux/android)."""
+    return _PLATFORM_BIN_EXTS.get(build_platform, {}).get("bin", "")
+
 def get_test_bin_ext():
-    """Filename suffix of a test binary (".exe" windows, ".js" web/node, "" elsewhere)."""
-    if build_platform == "windows":
-        return ".exe"
-    if build_platform == "web":
-        return ".js"
-    return ""
+    """Filename suffix for built test binaries ("" on linux/android)."""
+    return _PLATFORM_BIN_EXTS.get(build_platform, {}).get("test", "")
 
 def get_test_runner():
     """Emulator command that wraps a cross-built test binary, or "" when it runs natively."""
@@ -623,8 +648,24 @@ def get_java_home():
     return utils.get_opt("JAVA_HOME", "")
 
 def get_ndk_root():
-    """Get Android NDK root path."""
+    """Get the Android NDK root path."""
     return utils.get_opt("ANDROID_NDK_PATH", "")
+
+def _read_ndk_revision():
+    """Full NDK revision from source.properties (e.g. "28.0.13004108"), or ''."""
+    ndk_root = get_ndk_root()
+    source_props = os.path.join(ndk_root, "source.properties") if ndk_root else ""
+    if not source_props or not os.path.isfile(source_props):
+        return ""
+    with open(source_props) as f:
+        for line in f:
+            if line.startswith("Pkg.Revision"):
+                return line.split("=")[1].strip()
+    return ""
+
+def get_ndk_version():
+    """NDK version string for Gradle's ndkVersion (e.g. "28.0.13004108"), or ''."""
+    return _read_ndk_revision()
 
 def get_ndk_api_level():
     """Get Android API level (default 24)."""
@@ -670,21 +711,7 @@ def _check_unsupported_sanitizers(compiler_label):
             ok = False
     return ok
 
-def _force_static_no_sanitizers(sanitizer_label, display_label):
-    """Reject sanitizers and force static libs for compilers that require them.
-
-    Currently only Emscripten (no dynamic linking). The Android NDK supports
-    shared module libs, so it does NOT force static; mingw builds shared DLLs.
-    """
-    global build_static_libs
-    ok = _check_unsupported_sanitizers(sanitizer_label)
-    if not build_static_libs:
-        logger.warning("not supported {} without static libs - switching to static libs".format(display_label))
-        build_static_libs = True
-    return ok
-
 def verify_args(app):
-    global build_static_libs
     ret = True
     if is_msys() and not is_msys_mingw():
         logger.error("msys2 supported for mingw64 only")
@@ -754,7 +781,9 @@ def verify_args(app):
         if not _check_unsupported_sanitizers("mingw"):
             ret = False
     elif build_compiler == "em":
-        if not _force_static_no_sanitizers("emscripten", "Emscripten"):
+        # Static libs are already forced at resolution time (before build_path
+        # is computed); here we only reject sanitizers Emscripten cannot run.
+        if not _check_unsupported_sanitizers("Emscripten"):
             ret = False
     return ret
 
@@ -858,5 +887,5 @@ def symlink_build():
         safe_symlink(build_path, build_last_link_path)
 
 def distribute_app(app, modules):
-    from site_scons.sbt.build.distribution import distribute_app as _dist
+    from sbt.build.distribution import distribute_app as _dist
     _dist(app, modules)

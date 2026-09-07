@@ -38,17 +38,20 @@ Public API (methods available in module scons.py scripts):
 """
 
 from glob import glob
+import json
+import os
+import shutil
 from os import path as os_path
 
 from SCons.Script import NoCache
 
 from sbt.core import builder
 from sbt.core import logger
-from site_scons.sbt.build import cpp_module_parse as build_cpp_modules
-from site_scons.sbt.scons import utils as scons_utils
-from site_scons.sbt.scons import android as scons_android
-from site_scons.sbt.scons import cpp_modules as scons_cpp_modules
-from site_scons.sbt.scons import env_factory
+from sbt.build import cpp_module_parse as build_cpp_modules
+from sbt.scons import utils as scons_utils
+from sbt.scons import android as scons_android
+from sbt.scons import cpp_modules as scons_cpp_modules
+from sbt.scons import env_factory
 
 
 ###############################################################################
@@ -95,7 +98,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     module_android_dir = os_path.join(module_dir, android_dir) if android_dir else None
     project_name = ctx.app.name
     config = scons_android.load_override_config(module_android_dir, project_name=project_name) if module_android_dir else {
-        "namespace": f"{project_name}.android.terminal",
+        "namespace": f"{scons_android.java_safe(project_name)}.{scons_android.TEMPLATE_NAMESPACE_SUFFIX}",
         "native_activity": False,
     }
 
@@ -124,7 +127,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
             if lib not in apk_env.get('LIBS', []):
                 apk_env.Append(LIBS=[lib])
 
-    all_srcs = [src] if isinstance(src, str) else list(src)
+    all_srcs = scons_utils.as_list(src)
     objects = apk_env.SharedObject(all_srcs)
     for extra_src in extra_srcs:
         basename = os_path.splitext(os_path.basename(extra_src))[0]
@@ -144,10 +147,56 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     # (a sibling of lib/ and demo/, removed by `make clean`).
     build_type = scons_android.get_gradle_build_type(ctx.app, builder.build_mode)
     gradle_cache_dir = scons_android.get_gradle_cache_dir()
-    ndk_version = os_path.basename(ndk_root) if ndk_root else None
+    ndk_version = builder.get_ndk_version() or (os_path.basename(ndk_root) if ndk_root else None)
     sign_config = getattr(ctx.app, "android_sign_config", None)
 
-    def _stage_and_build_apk(target, source, env):
+    # Staging is input-driven, not rebuilt on every run: bundled templates,
+    # the module's android/ overrides, keystore config. The stage action
+    # content-syncs the staging dir (android.stage_gradle_project), so
+    # Gradle's up-to-date checks and caches survive incremental builds.
+    stage_inputs = list(scons_android.template_files())
+    if module_android_dir and os.path.isdir(module_android_dir):
+        for root, _dirs, files in os.walk(module_android_dir):
+            for f in files:
+                if f != "config.py":
+                    stage_inputs.append(os_path.join(root, f))
+    if sign_config:
+        stage_inputs.append(sign_config)
+
+    # The stage substitutions that are derived values (namespace, permissions,
+    # ndk version, signing...) are not files, so record them in a fingerprint
+    # used as a stage input: any change re-runs staging, whose content-sync
+    # rewrites the staged project (and drops files made obsolete by the change).
+    # The fingerprint must exist as a real source file for SCons to see those
+    # changes, so it is written here (parse time) — but only when it actually
+    # changed, and never during a dry run.
+    stage_config_fp = {
+        "config": config,
+        "name": name,
+        "permissions": android_permissions,
+        "build_type": build_type,
+        "ndk_version": ndk_version or "",
+        "gradle_cache_dir": gradle_cache_dir or "",
+        "sign_config": sign_config or "",
+    }
+    stage_fp_path = os_path.join(builder.build_path, "apk-staging", f"{sanitized_name}.stage.json")
+    fp_content = json.dumps(stage_config_fp, sort_keys=True, default=str)
+    if not ctx.is_dry_run:
+        os.makedirs(os_path.dirname(stage_fp_path), exist_ok=True)
+        try:
+            with open(stage_fp_path, "r") as fd:
+                changed = fd.read() != fp_content
+        except (OSError, UnicodeDecodeError):
+            changed = True
+        if changed:
+            with open(stage_fp_path, "w") as fd:
+                fd.write(fp_content)
+    if os.path.isfile(stage_fp_path):
+        stage_inputs.append(stage_fp_path)
+
+    stage_stamp = os_path.join(builder.build_path, "apk-staging", f"{sanitized_name}.stage.stamp")
+
+    def _stage_apk(target, source, env):
         scons_android.stage_gradle_project(
             staging_dir, name, module_android_dir, permissions=android_permissions,
             project_name=project_name,
@@ -155,18 +204,29 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
             ndk_version=ndk_version,
             sign_config=sign_config,
         )
+        # The stamp must carry content: SCons decides out-of-date-ness by
+        # content, and an empty stamp would never mark the APK stale after a
+        # config-only change (permissions, namespace, ndk version, signing).
+        shutil.copyfile(stage_fp_path, str(target[0]))
+
+    stage_cmd = apk_env.Command(stage_stamp, stage_inputs, _stage_apk)
+
+    def _package_apk(target, source, env):
         # In a shared (non-static) build the module libs are separate .so that
         # the entry links against via DT_NEEDED. Android only ships real .so in
-        # the APK, so bundle every module .so too: Android's app namespace
-        # resolves DT_NEEDED against the extracted native lib dir, so jniLibs is
-        # all the dynamic linker needs to load the module chain when
-        # System.loadLibrary(entry) runs.
+        # the APK, so bundle every module .so into jniLibs too: Android's app
+        # namespace resolves DT_NEEDED against the extracted native lib dir, so
+        # jniLibs is all the dynamic linker needs to load the module chain when
+        # System.loadLibrary(entry) runs. The .so list is resolved at build
+        # time (none exist yet when the env is configured); a module .so change
+        # relinks so_lib, which re-runs this action, so copies stay fresh.
         module_sos = []
         if not builder.build_static_libs:
             module_sos = scons_android.collect_module_sos(
                 builder.build_lib_path, list(apk_env["LIBS"])
             )
-        scons_android.copy_so_to_jnilibs(staging_dir, str(source[0]), sanitized_name)
+        # SharedLibrary returns a list of nodes; entry [0] is the .so itself.
+        scons_android.copy_so_to_jnilibs(staging_dir, str(scons_utils.as_list(so_lib)[0]), sanitized_name)
         scons_android.copy_module_sos_to_jnilibs(staging_dir, module_sos)
         return scons_android.build_apk(
             staging_dir, str(target[0]),
@@ -175,8 +235,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
             apk_name=sanitized_name,
         )
 
-    apk_cmd = apk_env.Command(apk_output, so_lib, _stage_and_build_apk)
-    apk_env.AlwaysBuild(apk_cmd)
+    apk_cmd = apk_env.Command(apk_output, [so_lib, stage_stamp], _package_apk)
     ctx.state.add_targets(src)
     return apk_cmd
 
@@ -394,7 +453,9 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
 
     if name is None:
         name = self["APP_MODULE_FORMAT_NAME"]
-    name += ctx.bin_ext
+    # test suffix, not bin suffix: on web the runner executes the .js node
+    # binary, not the .html page a plain bin produces
+    name += ctx.test_ext
     test_path = os_path.join(builder.build_test_path, "bin", name)
 
     if cpp_mods:
@@ -648,7 +709,7 @@ def register_methods(base_env, ctx):
     After this call, every module's scons.py can access these methods on the
     *env* object exported to it via SConscript.
     """
-    from site_scons.sbt.core import utils as build_utils
+    from sbt.core import utils as build_utils
 
     # --- Artefact builders ---
 

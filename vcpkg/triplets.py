@@ -74,7 +74,7 @@ def detect_triplet(vcpkg_bin_path: str, sbt_triplet_path: str, addon_triplet_pat
     Scans vcpkg's triplet directories at runtime instead of maintaining
     hardcoded lists. Also includes SBT/addon-generated triplets (musl, zig).
     """
-    from site_scons.sbt.core import utils
+    from sbt.core import utils
 
     vcpkg_triplet = utils.get_opt("triplet", None)
 

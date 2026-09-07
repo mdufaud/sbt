@@ -139,8 +139,18 @@ docker run --rm my-app <binary>
 
 The Dockerfile is **multi-stage**:
 
-1. **Builder** (`debian:bookworm-slim`) — installs apt `-dev` packages, clones the repo via `git_url`, runs `make dep` then `make` in release mode, installs artefacts to `/dist` via `make install`
-2. **Runtime** (`alpine:latest`) — installs only the runtime `apk` packages, copies `/dist/usr/bin/` → `/usr/bin/`, `/dist/usr/lib/` → `/usr/lib/<name>/`, sets `LD_LIBRARY_PATH`
+1. **Builder** (default `debian:trixie-slim`) — installs apt `-dev` packages, clones the repo via `git_url` (or `COPY`es it with `docker_build_local=1`), runs `make dep` then `make` in release mode, installs artefacts to `/dist` via `make install`
+2. **Runtime** (default `debian:trixie-slim`) — installs only the runtime packages, copies `/dist/usr/bin/` → `/usr/bin/`, `/dist/usr/lib/` → `/usr/lib/<name>/`, sets `LD_LIBRARY_PATH`
+
+Images and package managers are configurable in `app.py` (`docker_builder_image`, `docker_runtime_image`, `docker_builder_pkg_manager`, `docker_runtime_pkg_manager` — pkg managers are auto-detected from the image name otherwise) or overridden on the command line (`docker_builder_image=... docker_runtime_image=... docker_build_local=1`).
+
+Like the `PKGBUILD`, the `make dep` / `make` lines embed the conditional env options
+(`py=`, `lua=`, `x11=`, `wayland=`, ...) auto-deduced from the module configuration, so
+the generated image builds the same feature set as the command that generated it. Note
+that system packages for those features are only included when the module/package
+mapping knows them — unmapped ones (e.g. x11/wayland display libs) are provided by
+vcpkg during `make dep` (`INSTALL_EXTLIBS=1` then carries the `.so` into the runtime
+stage when not static).
 
 Runtime library paths require `app.apk_packages` (Alpine package name mapping):
 

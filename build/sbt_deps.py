@@ -34,32 +34,13 @@ if _site_scons not in sys.path:
 from sbt.core import loader
 from sbt.core import builder
 from sbt.core import logger
-from site_scons.sbt.core import utils
+from sbt.core import utils
 
 # ABI-critical args inherited from the consumer — cannot be overridden by dep args
 _ABI_ARGS = frozenset({"platform", "compiler", "machine", "libc"})
 
 # Args forwarded from consumer build config to dep builds
 _FORWARDED_ARGS = ("platform", "compiler", "machine", "libc", "cpu", "static", "mode")
-
-
-def _import_app_from_path(app_path):
-    """Import an app.py module from an arbitrary path."""
-    import importlib.util
-    before = sys.dont_write_bytecode
-    sys.dont_write_bytecode = True
-    try:
-        abs_path = os.path.abspath(app_path)
-        if not os.path.isfile(abs_path):
-            raise ImportError(f"File not found: {abs_path}")
-        spec = importlib.util.spec_from_file_location("dep_app", abs_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Could not load module spec from: {abs_path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        sys.dont_write_bytecode = before
 
 
 def _ref_is_branch(dest, ref):
@@ -69,10 +50,89 @@ def _ref_is_branch(dest, ref):
     ) == 0
 
 
+def _gitmodules_sbt_url(gitmodules_path):
+    """Return the clone URL declared for the site_scons/sbt submodule, or ''.
+
+    Key order inside a section is not guaranteed (git writes `path` before
+    `url`, hand-edited files may not), so each section is parsed whole and the
+    sbt one is picked afterwards.
+    """
+    sections = []
+    current = {}
+    with open(gitmodules_path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("[submodule"):
+                if current:
+                    sections.append(current)
+                current = {}
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            current[key.strip()] = value.strip()
+    if current:
+        sections.append(current)
+    for section in sections:
+        if section.get("path", "").rstrip("/").endswith("site_scons/sbt"):
+            return section.get("url", "")
+    return ""
+
+
+def _ensure_sbt_module(dest):
+    """Materialize the sbt framework inside a cloned dependency.
+
+    `git submodule update --init` covers a properly committed gitlink. A repo
+    that only ships .gitmodules (or whose gitlink never made it into the
+    commit) leaves site_scons/sbt missing, and every dep build then fails on
+    "site_scons/sbt/makefile/sbt.mk: No such file". Fall back to cloning sbt
+    straight from the URL declared in .gitmodules.
+    """
+    sbt_dir = os.path.join(dest, "site_scons", "sbt")
+    if os.path.isdir(sbt_dir) and os.listdir(sbt_dir):
+        return
+    gitmodules = os.path.join(dest, ".gitmodules")
+    if not os.path.isfile(gitmodules):
+        return
+    url = _gitmodules_sbt_url(gitmodules)
+    if not url:
+        logger.error(
+            "dependency '{}' has no site_scons/sbt and .gitmodules declares no sbt "
+            "submodule — add it (git submodule add <sbt-url> site_scons/sbt) or "
+            "clone sbt there manually".format(dest)
+        )
+        return
+    logger.info(f"initializing sbt framework from .gitmodules: {url}")
+    tmp_dir = sbt_dir + ".tmp-clone"
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    if os.path.isdir(sbt_dir):
+        os.rmdir(sbt_dir)
+    elif os.path.isfile(sbt_dir):
+        os.remove(sbt_dir)
+    ret = subprocess.call(["git", "clone", "--depth", "1", url, tmp_dir])
+    if ret == 0:
+        try:
+            os.rename(tmp_dir, sbt_dir)
+        except OSError as e:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            logger.warning(f"could not install sbt framework into {sbt_dir}: {e}")
+            return
+        logger.warning(
+            "sbt framework cloned from {} remote HEAD — not pinned, it may "
+            "differ from this project's sbt version".format(url)
+        )
+    else:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.warning(f"could not clone sbt framework from {url} — dep builds may fail")
+
+
 def _init_git_extras(dest, recursive=False):
     """Initialize submodules and pull LFS files after clone/fetch."""
     if not recursive:
         subprocess.call(["git", "-C", dest, "submodule", "update", "--init", "--recursive"])
+    # Ran for recursive deps too: `git clone --recursive` cannot materialize a
+    # site_scons/sbt whose gitlink never made it into the commit.
+    _ensure_sbt_module(dest)
     if shutil.which("git-lfs"):
         subprocess.call(["git", "-C", dest, "lfs", "pull"])
 
@@ -149,16 +209,17 @@ def _resolve_all_deps(deps_dict, deps_dir, force, resolved=None, seen_urls=None)
         dep_path = _clone_dep(name, config, deps_dir, force)
         resolved[name] = {"config": config, "path": dep_path, "transitive_deps": []}
 
-        # Check for transitive SBT dependencies
+        # Check for transitive SBT dependencies (best-effort: a dep whose
+        # app.py cannot load still gets built — its own make will fail loudly)
         dep_app_path = os.path.join(dep_path, "app.py")
         try:
-            dep_app = _import_app_from_path(dep_app_path)
+            dep_app = loader.load_app_from_path(dep_app_path, project_root=dep_path)
             transitive = getattr(dep_app, "sbt_dependencies", {})
             if transitive:
                 logger.info(f"dependency '{name}' has {len(transitive)} transitive SBT dep(s)")
                 _resolve_all_deps(transitive, deps_dir, force, resolved, seen_urls)
                 resolved[name]["transitive_deps"] = list(transitive.keys())
-        except ImportError as e:
+        except Exception as e:
             logger.warning(f"could not load app.py from dependency '{name}': {e}")
 
     # Topological sort: leaf-first
@@ -224,34 +285,31 @@ def _make_args_str(make_args):
     return " ".join(f"{k}={v}" for k, v in make_args.items() if v)
 
 
+def _make_args_list(make_args):
+    """Convert a dict of make args to an argv list (no shell interpolation)."""
+    return [f"{k}={v}" for k, v in make_args.items() if v]
+
+
 def _compute_dep_build_path(dep_path, make_args):
     """
     Compute the build output path of a dependency based on its make args.
-    Mirrors builder.py's build_path computation.
+    Uses builder.compute_build_path so the formula can never drift from the
+    consumer's own path computation.
     """
-    from sbt.core import architectures
-
-    dep_machine = make_args.get("machine", builder.build_machine)
-    dep_platform = make_args.get("platform", builder.build_platform)
-    dep_libc = make_args.get("libc", builder.libc)
-    dep_mode = make_args.get("mode", builder.build_mode)
-    dep_compiler_version = builder.build_compiler_version
-    dep_liblink = "static" if make_args.get("static") == "1" else "shared"
-
-    dep_build_path = os.path.join(
-        dep_path, "build",
-        f"{dep_machine}-{dep_platform}-{dep_libc}",
-        dep_compiler_version,
-        dep_mode,
-        dep_liblink
+    return builder.compute_build_path(
+        dep_path,
+        make_args.get("machine", builder.build_machine),
+        make_args.get("platform", builder.build_platform),
+        make_args.get("libc", builder.libc),
+        builder.build_compiler_version,
+        make_args.get("mode", builder.build_mode),
+        make_args.get("static") == "1",
     )
-    return dep_build_path
 
 
 def _build_dep(name, dep_path, dep_config, consumer_vcpkg_path, consumer_extlib_path):
     """Build a single dependency via subprocess make."""
     make_args = _compute_dep_build_args(dep_config)
-    args_str = _make_args_str(make_args)
 
     # Determine vcpkg sharing
     use_own_vcpkg = dep_config.get("vcpkg", "") == "own"
@@ -276,17 +334,17 @@ def _build_dep(name, dep_path, dep_config, consumer_vcpkg_path, consumer_extlib_
 
     # Phase 1: fetch vcpkg dependencies
     logger.info(f"fetching dependencies for: {name}")
-    dep_cmd = f"make dep {args_str}"
-    logger.info(f"  cmd: {dep_cmd}")
-    ret = subprocess.call(dep_cmd, shell=True, cwd=dep_path, env=env)
+    dep_cmd = ["make", "dep"] + _make_args_list(make_args)
+    logger.info(f"  cmd: {' '.join(dep_cmd)}")
+    ret = subprocess.call(dep_cmd, cwd=dep_path, env=env)
     if ret != 0:
         raise RuntimeError(f"'make dep' failed for dependency '{name}' (exit {ret})")
 
     # Phase 2: build
     logger.info(f"building dependency: {name}")
-    build_cmd = f"make build {args_str}"
-    logger.info(f"  cmd: {build_cmd}")
-    ret = subprocess.call(build_cmd, shell=True, cwd=dep_path, env=env)
+    build_cmd = ["make", "build"] + _make_args_list(make_args)
+    logger.info(f"  cmd: {' '.join(build_cmd)}")
+    ret = subprocess.call(build_cmd, cwd=dep_path, env=env)
     if ret != 0:
         raise RuntimeError(f"'make build' failed for dependency '{name}' (exit {ret})")
 

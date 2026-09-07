@@ -7,6 +7,7 @@ replace placeholders, build a SharedLibrary, and package an APK.
 
 import glob
 import os
+import re
 import shutil
 import subprocess
 
@@ -18,10 +19,30 @@ from sbt.core import logger
 _sbt_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(_sbt_dir, "android")
 
+def template_files():
+    """Every file of the bundled Gradle template — the re-stage inputs."""
+    files = []
+    for root, _dirs, names in os.walk(TEMPLATE_DIR):
+        for f in names:
+            files.append(os.path.join(root, f))
+    return files
+
 # Java namespace the bundled template ships with; the per-project default namespace
 # reuses everything after the leading segment (e.g. "android.terminal").
 TEMPLATE_NAMESPACE = "sbt.android.terminal"
 TEMPLATE_NAMESPACE_SUFFIX = TEMPLATE_NAMESPACE.split(".", 1)[1]
+
+def java_safe(part):
+    """Make a project-name segment a legal Java package part.
+
+    App names allow hyphens ("project-name") but Java packages and the JNI
+    symbol derived from the namespace do not — every derived segment is
+    sanitized (explicit namespaces in android/config.py stay as authored).
+    """
+    part = re.sub(r"[^A-Za-z0-9_]", "_", str(part))
+    if part and part[0].isdigit():
+        part = "_" + part
+    return part
 
 def get_gradle_build_type(app, mode, default="debug"):
     """Return the Gradle build type (assemble<BuildType>) for an sbt compile mode.
@@ -58,7 +79,14 @@ def get_gradle_cache_dir():
 
 def get_abi():
     """Get the Android ABI string for the current build machine."""
-    return architectures.get_ndk_abi(builder.build_machine) or "arm64-v8a"
+    abi = architectures.get_ndk_abi(builder.build_machine)
+    if not abi:
+        raise RuntimeError(
+            "no Android ABI for machine '{}' — supported: arm64, arm32, x86_64, x86".format(
+                builder.build_machine
+            )
+        )
+    return abi
 
 
 def _replace_placeholders(filepath, replacements):
@@ -76,8 +104,26 @@ def _replace_placeholders(filepath, replacements):
             f.write(content)
 
 
+def _copy_if_changed(src_file, dst_file):
+    """Copy *src_file* over *dst_file* only when content actually differs."""
+    try:
+        with open(src_file, "rb") as f:
+            new = f.read()
+        with open(dst_file, "rb") as f:
+            old = f.read()
+        if old == new:
+            return
+    except FileNotFoundError:
+        pass
+    shutil.copy2(src_file, dst_file)
+
+
 def _copy_tree(src_dir, dst_dir):
-    """Copy a directory tree, creating directories as needed."""
+    """Copy a directory tree, creating directories as needed.
+
+    Files whose content is unchanged are left untouched so Gradle's
+    up-to-date checks and configuration cache keep working across builds.
+    """
     for root, dirs, files in os.walk(src_dir):
         rel_root = os.path.relpath(root, src_dir)
         dst_root = os.path.join(dst_dir, rel_root)
@@ -85,7 +131,33 @@ def _copy_tree(src_dir, dst_dir):
         for f in files:
             src_file = os.path.join(root, f)
             dst_file = os.path.join(dst_root, f)
-            shutil.copy2(src_file, dst_file)
+            _copy_if_changed(src_file, dst_file)
+
+
+def _sync_tree(src_dir, dst_dir, preserve=()):
+    """Mirror *src_dir* into *dst_dir*: copy changed files, delete extras.
+
+    The staged Gradle project is regenerated on every build (placeholders,
+    overlays) but re-creating it from scratch would reset file mtimes and
+    defeat Gradle's up-to-date checks. Syncing keeps unchanged files (and
+    their mtimes) in place. *preserve* lists relative path prefixes whose
+    files are never deleted (e.g. Gradle build outputs inside the staging).
+    """
+    src_files = {}
+    for root, _dirs, files in os.walk(src_dir):
+        rel_root = os.path.relpath(root, src_dir)
+        for f in files:
+            src_files[os.path.normpath(os.path.join(rel_root, f))] = os.path.join(root, f)
+    for root, _dirs, files in os.walk(dst_dir):
+        rel_root = os.path.relpath(root, dst_dir)
+        for f in files:
+            rel = os.path.normpath(os.path.join(rel_root, f))
+            if rel not in src_files and not rel.startswith(preserve):
+                os.remove(os.path.join(root, f))
+    for rel, src_file in src_files.items():
+        dst_file = os.path.join(dst_dir, rel)
+        os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+        _copy_if_changed(src_file, dst_file)
 
 
 def _remove_empty_dirs(path):
@@ -106,7 +178,7 @@ def load_override_config(android_dir, project_name=None):
         namespace (str): Java package namespace
         native_activity (bool): whether to use NativeActivity mode
     """
-    default_ns = f"{project_name}.{TEMPLATE_NAMESPACE_SUFFIX}"
+    default_ns = f"{java_safe(project_name)}.{TEMPLATE_NAMESPACE_SUFFIX}"
     defaults = {
         "namespace": default_ns,
         "native_activity": False,
@@ -160,34 +232,38 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
     if module_android_dir and os.path.isdir(module_android_dir):
         config = load_override_config(module_android_dir, project_name=project_name)
     else:
-        config = {"namespace": f"{project_name}.{TEMPLATE_NAMESPACE_SUFFIX}", "native_activity": False}
+        config = {"namespace": f"{java_safe(project_name)}.{TEMPLATE_NAMESPACE_SUFFIX}", "native_activity": False}
 
-    # Clean and create staging dir
-    if os.path.isdir(staging_dir):
-        shutil.rmtree(staging_dir)
-    os.makedirs(staging_dir, exist_ok=True)
+    # Stage into a temp tree, then sync into the staging dir: unchanged files
+    # keep their mtimes, which keeps Gradle's up-to-date checks and
+    # configuration cache working across builds. A blanket recreate would
+    # invalidate them on every build.
+    tmp_dir = staging_dir + ".staging"
+    if os.path.isdir(tmp_dir):
+        shutil.rmtree(tmp_dir)
+    os.makedirs(tmp_dir, exist_ok=True)
 
     # Step 1: Copy default templates
-    _copy_tree(TEMPLATE_DIR, staging_dir)
+    _copy_tree(TEMPLATE_DIR, tmp_dir)
 
     # Step 1b: Move default java package dir to match the configured namespace
-    default_ns_path = os.path.join(staging_dir, "app", "src", "main", "java", *TEMPLATE_NAMESPACE.split("."))
-    target_ns_path = os.path.join(staging_dir, "app", "src", "main", "java",
+    default_ns_path = os.path.join(tmp_dir, "app", "src", "main", "java", *TEMPLATE_NAMESPACE.split("."))
+    target_ns_path = os.path.join(tmp_dir, "app", "src", "main", "java",
                                   *config["namespace"].split("."))
     if default_ns_path != target_ns_path and os.path.isdir(default_ns_path):
         os.makedirs(os.path.dirname(target_ns_path), exist_ok=True)
         shutil.move(default_ns_path, target_ns_path)
         # Clean up empty parent dirs left by the move
-        _remove_empty_dirs(os.path.join(staging_dir, "app", "src", "main", "java", TEMPLATE_NAMESPACE.split(".")[0]))
+        _remove_empty_dirs(os.path.join(tmp_dir, "app", "src", "main", "java", TEMPLATE_NAMESPACE.split(".")[0]))
 
     # Step 2: If terminal mode, remove NativeActivity-specific files (none in default)
     # If NativeActivity mode, remove terminal-specific files
     if config["native_activity"]:
-        terminal_kt = os.path.join(staging_dir, "app", "src", "main", "java",
+        terminal_kt = os.path.join(tmp_dir, "app", "src", "main", "java",
                                    *config["namespace"].split("."))
         if os.path.isdir(terminal_kt):
             shutil.rmtree(terminal_kt)
-        bridge_cpp = os.path.join(staging_dir, "app", "src", "main", "cpp", "terminal_bridge.cpp")
+        bridge_cpp = os.path.join(tmp_dir, "app", "src", "main", "cpp", "terminal_bridge.cpp")
         if os.path.isfile(bridge_cpp):
             os.remove(bridge_cpp)
 
@@ -195,7 +271,7 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
     if module_android_dir and os.path.isdir(module_android_dir):
         for root, dirs, files in os.walk(module_android_dir):
             rel_root = os.path.relpath(root, module_android_dir)
-            dst_root = os.path.join(staging_dir, rel_root)
+            dst_root = os.path.join(tmp_dir, rel_root)
             os.makedirs(dst_root, exist_ok=True)
             for f in files:
                 if f == "config.py":
@@ -242,7 +318,7 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
         "__SBT_SIGN_REF__": sign_ref,
     }
 
-    for root, dirs, files in os.walk(staging_dir):
+    for root, dirs, files in os.walk(tmp_dir):
         for f in files:
             filepath = os.path.join(root, f)
             _replace_placeholders(filepath, replacements)
@@ -251,14 +327,23 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
     # build. This is injected here (not from the static template) so it never
     # produces invalid `directory = ""` when no cache dir is supplied.
     if gradle_cache_dir:
-        _inject_build_cache_dir(os.path.join(staging_dir, "settings.gradle"),
+        _inject_build_cache_dir(os.path.join(tmp_dir, "settings.gradle"),
                                 os.path.join(gradle_cache_dir, "build-cache"))
+
+    # Gradle outputs (app/build, .gradle project caches) live inside the
+    # staging dir and must survive the sync.
+    _sync_tree(tmp_dir, staging_dir, preserve=("app/build", ".gradle"))
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return config
 
 
 def _inject_build_cache_dir(settings_path, cache_dir):
-    """Insert a `buildCache { local { directory = ... } }` block into settings.gradle."""
+    """Insert a `buildCache { local { directory = ... } }` block into settings.gradle.
+
+    Rewrites the file only when its content changes so the staged project
+    stays byte-identical across builds (Gradle up-to-date checks).
+    """
     try:
         with open(settings_path, 'r') as f:
             content = f.read()
@@ -281,6 +366,12 @@ def _inject_build_cache_dir(settings_path, cache_dir):
         content = content.replace(marker, block + marker, 1)
     else:
         content += block
+    try:
+        with open(settings_path, 'r') as f:
+            if f.read() == content:
+                return
+    except (OSError, UnicodeDecodeError):
+        pass
     with open(settings_path, 'w') as f:
         f.write(content)
 
@@ -472,8 +563,16 @@ def build_apk(staging_dir, apk_output_path, build_type="debug", gradle_cache_dir
             project_cache_dir = os.path.join(gradle_cache_dir, apk_name, ".gradle")
             os.makedirs(project_cache_dir, exist_ok=True)
 
+    gradle_bin = shutil.which("gradle")
+    if not gradle_bin:
+        logger.error(
+            "gradle not found on PATH — it is required to build APKs. "
+            "Install gradle or extend PATH."
+        )
+        return 1
+
     logger.info(f"building APK: {os.path.basename(apk_output_path)} ({build_type})")
-    cmd = ["gradle", f"assemble{build_type.capitalize()}"]
+    cmd = [gradle_bin, f"assemble{build_type.capitalize()}"]
     if project_cache_dir:
         cmd += ["--project-cache-dir", project_cache_dir]
     ret = subprocess.call(cmd, cwd=staging_dir, env=gradle_env)

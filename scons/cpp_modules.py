@@ -9,8 +9,8 @@ edges, and source/prebuilt-object splitting.
 from os import path as os_path
 
 from sbt.core import builder
-from site_scons.sbt.build import cpp_module_parse as build_cpp_modules
-from site_scons.sbt.scons import utils as scons_utils
+from sbt.build import cpp_module_parse as build_cpp_modules
+from sbt.scons import utils as scons_utils
 
 
 def register_suffixes(env):

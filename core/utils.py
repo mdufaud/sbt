@@ -31,6 +31,9 @@ def link_tree(src, dst):
             os.symlink(s, d)
 
 def get_opt(argname, default_val=""):
+    """Read a build option: first non-empty `name=value` argv token, else the
+    process environment (env.py variables, make's export of command-line
+    vars). Whether a name is an option at all is core/options.py's concern."""
     prefix = argname + "="
     for arg in sys.argv:
         if arg.startswith(prefix):

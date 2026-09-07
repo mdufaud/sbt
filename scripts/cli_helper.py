@@ -4,11 +4,31 @@ import json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from sbt.core import builder
-from sbt.core import loader
-from sbt.core import conf as sbt_conf
-from sbt.build import modules as build_modules_util
-from sbt.scons import env_factory
+def _make_error_line(msg, why="sbt cli failed"):
+    """Emit a make `$(error ...)` for the consuming $(eval) at include time.
+
+    The message lands on a single makefile line: a newline breaks the emitted
+    file, a '#' truncates the error, quotes confuse make's parser, and an
+    unescaped '$' gets expanded (or breaks parsing via '$(') — flatten it to a
+    safe one-liner.
+    """
+    msg = " ".join(str(msg).split()).replace("#", "").replace("'", "").replace("$", "$$")
+    return "$(error {}: {})".format(why, msg)
+
+try:
+    from sbt.core import builder
+    from sbt.core import loader
+    from sbt.core import conf as sbt_conf
+    from sbt.core import options as sbt_options
+    from sbt.build import modules as build_modules_util
+    from sbt.scons import env_factory
+except ImportError as e:
+    # A broken sbt install (partial copy, missing package) must surface as the
+    # readable $(error ...) consumed by sbt.mk, not a raw python traceback.
+    if __name__ == "__main__":
+        print(_make_error_line(e))
+        sys.exit(0)
+    raise
 
 
 def _runner_env():
@@ -127,6 +147,51 @@ def _dump():
     return json_path
 
 
+# sbt_env.json "paths" key -> make variable emitting its absolute path
+_PATH_MAKE_VARS = {
+    "bin": "BIN_PATH",
+    "lib": "LIB_PATH",
+    "include": "INCLUDE_PATH",
+    "etc": "ETC_PATH",
+    "share": "SHARE_PATH",
+    "test": "TEST_PATH",
+    "test_bin": "TEST_BIN_PATH",
+    "demo": "DEMO_PATH",
+    "obj": "OBJ_PATH",
+    "extlib": "EXTLIB_PATH",
+    "extlib_lib": "EXTLIB_LIB_PATH",
+}
+
+def _makevars():
+    """Emit `KEY := value` make definitions consumed via $(eval $(shell ...)).
+
+    Paths resolved once by python, included by sbt.mk. Also emits
+    SBT_FWD_CORE — the option names from core.options.KNOWN_OPTIONS — so make
+    forwards each option with its resolved make value (target-specific
+    assignments like `test: test=1` reach scons) without naming options.
+    """
+    env = _build_env()
+    lines = [
+        "PLATFORM := {}".format(env["build"]["platform"]),
+        "MACHINE := {}".format(env["build"]["machine"]),
+        "COMPILE_MODE := {}".format(env["build"]["mode"]),
+        "COMPILER := {}".format(env["build"]["compiler"]),
+        "GNU_TRIPLET := {}".format(env["build"]["triplet"]),
+        "BUILD_PATH := {}".format(env["build_path"]),
+        "APP_NAME := {}".format(env["app_name"]),
+        "MODULES_DIR := {}".format(env["modules_path"]),
+        "TEST_RUNNER := {}".format(env["test"]["runner"]),
+        "TEST_BIN_EXT := {}".format(env["test"]["bin_ext"]),
+    ]
+    lines += [
+        "{} := {}".format(make_var, os.path.join(env["build_path"], env["paths"][key]))
+        for key, make_var in _PATH_MAKE_VARS.items()
+    ]
+    fwd_core = " ".join(sorted(sbt_options.KNOWN_OPTIONS))
+    lines.append("SBT_FWD_CORE := {}".format(fwd_core))
+    return "\n".join(lines)
+
+
 def _dump_config_readable(data, indent=0):
     prefix = "  " * indent
     if isinstance(data, dict):
@@ -187,6 +252,14 @@ if __name__ == '__main__':
         as_json = len(sys.argv) > 2 and sys.argv[2] == "--json"
         _dump_config(as_json)
         sys.exit(0)
+    if len(sys.argv) >= 2 and sys.argv[1] == "makevars":
+        # On failure, emit a make $(error ...) so the consuming $(eval) fails
+        # with a readable message instead of parsing a python traceback.
+        try:
+            print(_makevars())
+        except (SystemExit, Exception) as e:
+            print(_make_error_line(e, "sbt makevars failed"))
+            sys.exit(0)
     if len(sys.argv) != 2:
         sys.exit(0)
     if sys.argv[1] == "dump":

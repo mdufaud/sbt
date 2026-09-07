@@ -19,11 +19,11 @@ pp = PrettyPrinter(indent=2)
 
 from sbt.core import loader
 
-from site_scons.sbt.build import modules
+from sbt.build import modules
 from sbt.core import builder
 from sbt.core import logger
 from sbt.core import architectures
-from site_scons.sbt.core import utils
+from sbt.core import utils
 
 from sbt.vcpkg.triplets import detect_triplet
 from sbt.vcpkg.cross import build_overlay_triplet_with_flags, generate_pkgconfig_wrapper
@@ -317,6 +317,10 @@ def _execute_vcpkg_install():
         logger.debug(f"executing '{args}' in '{vcpkg_build_path}'")
 
     from subprocess import run as subprocess_run
+    if not extlibs:
+        # everything was covered by with-system-packages — nothing for vcpkg to do
+        logger.info("no external libraries left to fetch with vcpkg")
+        return 0
     number_of_seconds_per_lib = 1000
     proc = subprocess_run(args, cwd=vcpkg_build_path, timeout=(number_of_seconds_per_lib * len(extlibs)), env=copy_env)
 

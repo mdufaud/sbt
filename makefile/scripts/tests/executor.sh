@@ -16,7 +16,14 @@ log_dir="$TEST_PATH/logs"
 
 module_list="$2"
 if [ -z "${module_list// }" ] || [ "${module_list// }" = "all" ]; then
-    module_list=$(cd "$TEST_BIN_PATH" && ls)
+    # Only files carrying the test suffix are test modules: a web build drops
+    # the .wasm side product in the same dir, and stripping suffixes from a
+    # raw ls would turn it into a bogus module name.
+    if [ -n "$TEST_BIN_EXT" ]; then
+        module_list=$(cd "$TEST_BIN_PATH" && ls | grep -E "\\${TEST_BIN_EXT}\$")
+    else
+        module_list=$(cd "$TEST_BIN_PATH" && ls)
+    fi
     module_list="${module_list//${APP_NAME}_/}"
     if [ -n "$TEST_BIN_EXT" ]; then
         module_list="${module_list//${TEST_BIN_EXT}/}"

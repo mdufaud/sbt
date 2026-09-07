@@ -22,7 +22,7 @@ def as_list(value):
     return [value]
 
 
-from site_scons.sbt.core.utils import dedupe_keep_order, get_opt
+from sbt.core.utils import dedupe_keep_order, get_opt
 
 ###############################################################################
 # Build helpers

@@ -67,6 +67,20 @@ def get_app_modes(app):
     """ @brief project-defined mode allowlist (from app.py + its includes) """
     return frozenset(getattr(app, "modes", []))
 
+def collect_values(conf, key, modules_options, base=False, prefix=""):
+    """The single option-suffixed conf lookup.
+
+    Concatenates conf["{prefix}{key}"] (when *base*) with every
+    conf["{prefix}{option}-{key}"] for each selector token in
+    *modules_options* (see env_factory.compute_modules_options). Used both for
+    active values ("linux-libs") and exported ones ("export-gcc-flags").
+    Returns a fresh list; conf values are never aliased.
+    """
+    ret = conf.get(f"{prefix}{key}", [])[:] if base else []
+    for option in modules_options:
+        ret.extend(conf.get(f"{prefix}{option}-{key}", []))
+    return ret
+
 def get_conf_vocabulary(app):
     return {
         "base_keys": sorted(_BASE_CONF_KEYS),

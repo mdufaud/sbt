@@ -48,7 +48,7 @@ if _site_scons not in sys.path:
 from sbt.core import loader
 from sbt.core import builder
 from sbt.core import logger
-from site_scons.sbt.build import modules as sbt_modules
+from sbt.build import modules as sbt_modules
 
 _BASE_SUPPRESSES = [
     "missingInclude",

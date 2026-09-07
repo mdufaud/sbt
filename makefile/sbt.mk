@@ -14,10 +14,6 @@ ifeq (, $(call find_exec,$(PYTHON_BIN)))
 $(error "Makefile: no python detected - it is needed to build the project.")
 endif
 
-ifeq (, $(call find_exec,jq))
-$(error "Makefile: no jq detected - it is needed to read the build environment.")
-endif
-
 OS := $(shell uname)
 
 ifeq ($(OS),Linux)
@@ -47,57 +43,35 @@ SBT_PATH := $(BUILD_TOOLS)/sbt
 
 SBT_CLI := $(SBT_PATH)/scripts/cli_helper.py
 
-ifeq ($(zig),1)
-override compiler := zig
-export compiler
-endif
+# One python call resolves the build configuration into make variable
+# definitions, included below: python is the only required interpreter (no
+# jq). On failure the cli emits a literal `$(error ...)` line, which fires
+# exactly here at include time. Command-line variables reach python through
+# the environment (`env $(MAKEOVERRIDES)`), not argv.
+BUILD_ENTRY_PATH := $(PROJECT_ROOT_PATH)/build
+MAKEVARS_PATH := $(BUILD_ENTRY_PATH)/makevars.mk
+# Atomic write: a crash mid-generation leaves neither a partial makevars.mk
+# nor a stale one — the cleanup removes both, and the PLATFORM check below
+# then fires with the run hint.
+$(shell mkdir -p $(BUILD_ENTRY_PATH) && env $(MAKEOVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > $(MAKEVARS_PATH).tmp && mv $(MAKEVARS_PATH).tmp $(MAKEVARS_PATH) || rm -f $(MAKEVARS_PATH).tmp $(MAKEVARS_PATH))
+-include $(MAKEVARS_PATH)
 
-SBT_ENV_PATH := $(shell machine=$(machine) mode=$(mode) platform=$(platform) compiler=$(compiler) libc=$(libc) static=$(static) $(PYTHON_BIN) $(SBT_CLI) dump)
-
-jq_get = $(shell jq -r '.$(1)' $(SBT_ENV_PATH))
-jq_path = $(BUILD_PATH)/$(call jq_get,paths.$(1))
-
-PLATFORM := $(call jq_get,build.platform)
 ifeq ($(PLATFORM),)
-$(error "Makefile: platform not found - cannot find build path")
+$(error "Makefile: platform not found - cannot find build path (run: $(PYTHON_BIN) $(SBT_CLI) makevars to see the error)")
 endif
 
-MACHINE := $(call jq_get,build.machine)
 ifeq ($(MACHINE),)
 $(error "Makefile: machine not found - cannot find build path")
 endif
 
-COMPILE_MODE := $(call jq_get,build.mode)
 ifeq ($(COMPILE_MODE),)
 $(error "Makefile: compilation mode not found - cannot find build path")
 endif
 
-COMPILER := $(call jq_get,build.compiler)
-GNU_TRIPLET := $(call jq_get,build.triplet)
-BUILD_PATH := $(call jq_get,build_path)
-APP_NAME := $(call jq_get,app_name)
-MODULES_DIR := $(call jq_get,modules_path)
-
-# Cross-test runner (qemu-user/wine) and test binary suffix; empty string means none
-TEST_RUNNER := $(call jq_get,test.runner)
-TEST_BIN_EXT := $(call jq_get,test.bin_ext)
-
 ##########
-# Paths
+# Paths (absolute, resolved by the makevars fragment included above)
 ##########
 
-BUILD_ENTRY_PATH := $(PROJECT_ROOT_PATH)/build
-EXTLIB_PATH := $(call jq_path,extlib)
-EXTLIB_LIB_PATH := $(call jq_path,extlib_lib)
-LIB_PATH := $(call jq_path,lib)
-INCLUDE_PATH := $(call jq_path,include)
-TEST_PATH := $(call jq_path,test)
-TEST_BIN_PATH := $(call jq_path,test_bin)
-BIN_PATH := $(call jq_path,bin)
-OBJ_PATH := $(call jq_path,obj)
-ETC_PATH := $(call jq_path,etc)
-DEMO_PATH := $(call jq_path,demo)
-SHARE_PATH := $(call jq_path,share)
 DIST_PATH := $(BUILD_PATH)/dist
 
 ####################
@@ -132,6 +106,29 @@ ifeq ($(j),)
 	j := $$[ $(UTILS_LOGICAL_CORE_NUMBER) - 1 ]
 endif
 SCONS_BUILD_CMD = $(SCONS_PREFIX) scons -Q -j$(j) $(SCONS_ARGS)
+
+# What reaches the builder (scons argv) — get_opt keeps the first non-empty
+# argv match and skips empty values:
+#   - SBT_FWD_CORE: every option the builder expects (core/options.py, emitted
+#     by `sbt makevars` — make never names an option). Each is forwarded with
+#     its *resolved* make value, so target-specific assignments flow through:
+#     test: test=1, dist: mode=release, pkgdep: pkgdep=apt, demo: demo=1.
+#     Values expand at recipe time; empty ones are skipped.
+#   - SBT_FWD_NAMES: raw command-line tokens unknown to the registry,
+#     forwarded as-is (projects may grow options the vendored sbt doesn't
+#     know yet); the builder warns once on names it never reads.
+# SBT_LOCAL_VARS are make-internal knobs the makefiles consume themselves
+# (j -> scons -j flag, repeat -> gtest env, SCONS_*/DEBUGGER*/TEST_RUNNER ->
+# scons invocation, INSTALL_* -> install recipe, and any project extension
+# via SBT_EXTRA_OPTS): they are never forwarded.
+SBT_LOCAL_VARS := j repeat SCONS_ARGS SCONS_PREFIX DEBUGGER \
+	DEBUGGER_ARGS TEST_RUNNER INSTALL_PREFIX INSTALL_DESTDIR \
+	INSTALL_NOCONFIRM INSTALL_LIBSUFFIX INSTALL_BINSUFFIX \
+	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX $(SBT_EXTRA_OPTS)
+SBT_FWD_NAMES := $(filter-out $(SBT_LOCAL_VARS) $(SBT_FWD_CORE),\
+	$(foreach o,$(MAKEOVERRIDES),$(firstword $(subst =, ,$(o)))))
+BUILD_CMD_LINE = $(foreach n,$(SBT_FWD_CORE),$(if $($(n)),$(n)=$($(n)))) \
+	$(foreach n,$(SBT_FWD_NAMES),$(filter $(n)=%,$(MAKEOVERRIDES)))
 
 ############
 # VCPKG
@@ -276,28 +273,6 @@ setup: venv
 
 build:
 	$(QUIET) cd $(PROJECT_ROOT_PATH)
-	$(eval BUILD_CMD_LINE = \
-			modules=$(modules) \
-			fmod=$(fmod) \
-			test=$(test) \
-			dist=$(dist) \
-			mode=$(mode) \
-			asan=$(asan) \
-			ubsan=$(ubsan) \
-			tsan=$(tsan) \
-			lsan=$(lsan) \
-			msan=$(msan) \
-			hwasan=$(hwasan) \
-			coverage=$(coverage) \
-			verbose=$(verbose) \
-			pkgdep=$(pkgdep) \
-			demo=$(demo) \
-			libc=$(libc) \
-			cpu=$(cpu) \
-			docker_builder_image=$(docker_builder_image) \
-			docker_runtime_image=$(docker_runtime_image) \
-			docker_build_local=$(docker_build_local) \
-	)
 	$(QUIET) $(call echo_log_info,makefile,starting build with command: '$(SCONS_BUILD_CMD) $(BUILD_CMD_LINE)')
 	$(QUIET) $(SCONS_BUILD_CMD) $(BUILD_CMD_LINE)
 

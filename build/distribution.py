@@ -4,16 +4,12 @@ import tarfile
 import subprocess
 from os.path import join
 
-try:
-    from sbt.core import builder as _b
-    from sbt.core import logger
-except ImportError:
-    from site_scons.sbt.core import builder as _b
-    from site_scons.sbt.core import logger
+from sbt.core import builder as _b
+from sbt.core import logger
 
-from site_scons.sbt.build import modules as sbt_modules
-from site_scons.sbt.core import utils
-from site_scons.sbt.core import architectures
+from sbt.build import modules as sbt_modules
+from sbt.core import utils
+from sbt.core import architectures
 
 def _copy_tree_if_exists(src, dst):
     """Recursively copy *src* into *dst* (creating *dst*) when *src* is a directory."""
@@ -104,13 +100,16 @@ def create_apt_package(app, modules):
             fd.write("Homepage: {}\n".format(app.url))
         if hasattr(app, "section"):
             fd.write("Section: {}\n".format(app.section))
-        fd.write("Architecture: {}\n".format(getattr(app, "architecture", "all")))
+        arch = getattr(app, "architecture", None) or architectures.get_deb_arch(_b.build_machine)
+        fd.write("Architecture: {}\n".format(arch))
         if hasattr(app, "multi_architecture"):
             fd.write("Multi-Arch: {}\n".format(app.multi_architecture))
         fd.write("Version: {}\n".format(app.version))
         if dependencies:
-            # Depends: libname (>= version), other_libname (>= other_version)
-            fd.write("Depends: {}\n".format(", ".join(["{} (>= {})".format(k, v.split('#')[0]) for k, v in dependencies.items()])))
+            # System package versions live in a different ecosystem than the
+            # vcpkg versions in app.extlibs — constraining them would make
+            # the Depends unsatisfiable, so only names are emitted.
+            fd.write("Depends: {}\n".format(", ".join(dependencies.keys())))
         fd.write("Description: {}\n".format(app.description))
     # /usr/bin
     _copy_tree_if_exists(_b.build_bin_path, join(apt_path, "usr", "bin"))
@@ -148,98 +147,90 @@ def create_pacman_package(app, modules):
     logger.info("creating pacman package: " + pacman_path)
     os.makedirs(pacman_path, exist_ok = True)
     pkg_build_path = join(pacman_path, "PKGBUILD")
-    # change directory to pacman path
+    # change directory to pacman path — restored even if generation fails
     old_cwd = os.getcwd()
     os.chdir(pacman_path)
-    logger.info("creating pacman PKGBUILD: {}".format(pkg_build_path))
-    # create PKGBUILD file
-    with open(pkg_build_path, "w") as fd:
-        for maintainer in app.maintainers:
-            fd.write('# Maintainer: {}\n'.format(maintainer))
-        for uploader in getattr(app, "contributors", []):
-            fd.write("# Contributor: {}\n".format(uploader))
-        fd.write('\n')
-        fd.write('pkgname={}\n'.format(app.name))
-        fd.write('pkgver={}\n'.format(app.version))
-        fd.write('pkgrel={}\n'.format(1))
-        fd.write('pkgdesc="{}"\n'.format(app.description))
-        fd.write("arch=('{}')\n".format(architectures.get_pacman_arch(_b.build_machine)))
-        if hasattr(app, "url"):
-            fd.write('url="{}"\n'.format(app.url))
-        if hasattr(app, "license"):
-            fd.write("license=('{}')\n".format(app.license))
-        if hasattr(app, "section"):
-            fd.write("groups=('{}')\n".format(app.section))
-        fd.write("makedepends=('git' 'make' 'scons')\n")
-        if dependencies:
-            # depends=('libname>=version' 'other_libname>=other_version')
-            # strip pkgrel suffix (e.g. '1.0.3#15' -> '1.0.3')
-            fd.write("depends=({})\n".format(" ".join(["'{}>={}'".format(k, v.split('#')[0]) for k, v in dependencies.items()])))
-        if hasattr(app, "pacman_source"):
-            fd.write('source=("{}")\n'.format(app.pacman_source))
-        fd.write("sha512sums=('SKIP')\n\n")
-        fd.write(('build() {{\n'
-            '\tcd "${{srcdir}}/${{pkgname}}-${{pkgver}}"\n'
-            '\tmake fclean\n'
-            '\tmake modules={modules} asan={asan} static={static} '
-            'platform={platform} compiler={compiler} machine={machine} libc={libc} mode={mode} ')
-        .format(
-            modules = utils.get_opt("modules"),
-            asan = utils.get_opt("asan", "0"),
-            static = utils.get_opt("static", "0"),
-            platform = _b.build_platform,
-            compiler = _b.build_compiler,
-            machine = _b.build_machine,
-            libc = _b.libc,
-            mode = _b.build_mode,
-        ))
-        if hasattr(app, "additional_build_env"):
-            fd.write(" ".join(["{}={}".format(k, utils.get_opt(k, "0")) for k in app.additional_build_env]))
+    try:
+        logger.info("creating pacman PKGBUILD: {}".format(pkg_build_path))
+        # create PKGBUILD file
+        with open(pkg_build_path, "w") as fd:
+            for maintainer in app.maintainers:
+                fd.write('# Maintainer: {}\n'.format(maintainer))
+            for uploader in getattr(app, "contributors", []):
+                fd.write("# Contributor: {}\n".format(uploader))
+            fd.write('\n')
+            fd.write('pkgname={}\n'.format(app.name))
+            fd.write('pkgver={}\n'.format(app.version))
+            fd.write('pkgrel={}\n'.format(1))
+            fd.write('pkgdesc="{}"\n'.format(app.description))
+            fd.write("arch=('{}')\n".format(architectures.get_pacman_arch(_b.build_machine)))
+            if hasattr(app, "url"):
+                fd.write('url="{}"\n'.format(app.url))
+            if hasattr(app, "license"):
+                fd.write("license=('{}')\n".format(app.license))
+            if hasattr(app, "section"):
+                fd.write("groups=('{}')\n".format(app.section))
+            fd.write("makedepends=('git' 'make' 'scons')\n")
+            if dependencies:
+                # System package versions live in a different ecosystem than
+                # the vcpkg versions in app.extlibs (same rationale as the
+                # apt Depends above) — constraining them would make the
+                # depends unsatisfiable, so only names are emitted.
+                fd.write("depends=({})\n".format(" ".join(["'{}'".format(k) for k in dependencies.keys()])))
+            if hasattr(app, "pacman_source"):
+                fd.write('source=("{}")\n'.format(app.pacman_source))
+            fd.write("sha512sums=('SKIP')\n\n")
+            fd.write(('build() {{\n'
+                '\tcd "${{srcdir}}/${{pkgname}}-${{pkgver}}"\n'
+                '\tmake fclean\n'
+                '\tmake modules={modules} asan={asan} static={static} '
+                'platform={platform} compiler={compiler} machine={machine} libc={libc} mode={mode} ')
+            .format(
+                modules = utils.get_opt("modules"),
+                asan = utils.get_opt("asan", "0"),
+                static = utils.get_opt("static", "0"),
+                platform = _b.build_platform,
+                compiler = _b.build_compiler,
+                machine = _b.build_machine,
+                libc = _b.libc,
+                mode = _b.build_mode,
+            ))
+            if hasattr(app, "additional_build_env"):
+                fd.write(" ".join(["{}={}".format(k, utils.get_opt(k, "0")) for k in app.additional_build_env]))
+            else:
+                # Auto-deduce additional env vars from module configs — see _get_conditional_env_args
+                fd.write(" ".join(_get_conditional_env_args(app)))
+            fd.write('\n}\n')
+            fd.write('\n')
+            fd.write(('package() {{\n'
+                '\tcd "${{srcdir}}/${{pkgname}}-${{pkgver}}"\n'
+                '\tmake install INSTALL_DESTDIR="${{pkgdir}}" INSTALL_PREFIX="/usr" INSTALL_NOCONFIRM=1 '
+                'static={static} platform={platform} compiler={compiler} machine={machine} libc={libc} mode={mode}\n'
+            '}}\n').format(
+                static = utils.get_opt("static", "0"),
+                platform = _b.build_platform,
+                compiler = _b.build_compiler,
+                machine = _b.build_machine,
+                libc = _b.libc,
+                mode = _b.build_mode,
+            ))
+        # generate .SRCINFO if makepkg is available
+        srcinfo_path = join(pacman_path, ".SRCINFO")
+        if shutil.which("makepkg") is not None:
+            result = subprocess.run(["makepkg", "--printsrcinfo"], capture_output=True, text=True)
+            if result.returncode == 0:
+                with open(srcinfo_path, "w") as fd:
+                    fd.write(result.stdout)
+                logger.info("generated .SRCINFO at: {}".format(srcinfo_path))
+            else:
+                logger.warning("makepkg --printsrcinfo failed: {}".format(result.stderr.strip()))
         else:
-            # Auto-deduce additional env vars from module configs:
-            # - "conditional-env" keys from conditional_modules (e.g. py=1, lua=1)
-            # - "env" dict keys from all modules (e.g. x11=1, wayland=1)
-            extra_env_keys = set()
-            for mod_conf in getattr(app, "conditional_modules", {}).values():
-                cond_env = mod_conf.get("conditional-env")
-                if cond_env:
-                    extra_env_keys.add(cond_env)
-            for mod_conf in getattr(app, "modules", {}).values():
-                for env_key in mod_conf.get("env", {}).keys():
-                    extra_env_keys.add(env_key)
-            if extra_env_keys:
-                fd.write(" ".join(["{}={}".format(k, utils.get_opt(k, "0")) for k in sorted(extra_env_keys)]))
-        fd.write('\n}\n')
-        fd.write('\n')
-        fd.write(('package() {{\n'
-            '\tcd "${{srcdir}}/${{pkgname}}-${{pkgver}}"\n'
-            '\tmake install INSTALL_DESTDIR="${{pkgdir}}" INSTALL_PREFIX="/usr" INSTALL_NOCONFIRM=1 '
-            'static={static} platform={platform} compiler={compiler} machine={machine} libc={libc} mode={mode}\n'
-        '}}\n').format(
-            static = utils.get_opt("static", "0"),
-            platform = _b.build_platform,
-            compiler = _b.build_compiler,
-            machine = _b.build_machine,
-            libc = _b.libc,
-            mode = _b.build_mode,
-        ))
-    # generate .SRCINFO if makepkg is available
-    srcinfo_path = join(pacman_path, ".SRCINFO")
-    if shutil.which("makepkg") is not None:
-        result = subprocess.run(["makepkg", "--printsrcinfo"], capture_output=True, text=True)
-        if result.returncode == 0:
-            with open(srcinfo_path, "w") as fd:
-                fd.write(result.stdout)
-            logger.info("generated .SRCINFO at: {}".format(srcinfo_path))
-        else:
-            logger.warning("makepkg --printsrcinfo failed: {}".format(result.stderr.strip()))
-    else:
-        logger.warning(
-            "makepkg not found — generate .SRCINFO manually:\n"
-            "  cd {} && makepkg --printsrcinfo > .SRCINFO".format(pacman_path)
-        )
-    # change back to old directory
-    os.chdir(old_cwd)
+            logger.warning(
+                "makepkg not found — generate .SRCINFO manually:\n"
+                "  cd {} && makepkg --printsrcinfo > .SRCINFO".format(pacman_path)
+            )
+    finally:
+        os.chdir(old_cwd)
 
 ###############################################################################
 # Docker distribution
@@ -281,7 +272,25 @@ def _get_docker_modules_str(modules):
     return "-".join(sorted(modules.keys()))
 
 
-def _get_docker_make_args(modules, has_demo):
+def _get_conditional_env_args(app):
+    """Return make variable assignments for conditional module env (e.g. x11=1, py=1).
+
+    Deduced from module configs:
+    - "conditional-env" keys from conditional_modules (e.g. py=1, lua=1)
+    - "env" dict keys from all modules (e.g. x11=1, wayland=1)
+    """
+    extra_env_keys = set()
+    for mod_conf in getattr(app, "conditional_modules", {}).values():
+        cond_env = mod_conf.get("conditional-env")
+        if cond_env:
+            extra_env_keys.add(cond_env)
+    for mod_conf in getattr(app, "modules", {}).values():
+        for env_key in mod_conf.get("env", {}).keys():
+            extra_env_keys.add(env_key)
+    return ["{}={}".format(k, utils.get_opt(k, "0")) for k in sorted(extra_env_keys)]
+
+
+def _get_docker_make_args(app, modules, has_demo):
     """Return a list of make variable assignments for the docker build stage."""
     mods_str = ",".join(sorted(modules.keys()))
     args = [f"m={mods_str}", "mode=release"]
@@ -289,6 +298,7 @@ def _get_docker_make_args(modules, has_demo):
         args.append("demo=1")
     if _b.build_static_libs:
         args.append("static=1")
+    args += _get_conditional_env_args(app)
     return args
 
 
@@ -348,7 +358,7 @@ def create_docker_package(app, modules):
         logger.warning("{} runtime packages not found for: {}".format(
             runtime_pm, ", ".join(missing_runtime)))
 
-    make_args = _get_docker_make_args(modules, has_demo)
+    make_args = _get_docker_make_args(app, modules, has_demo)
     make_args_str = " ".join(make_args)
     # For make dep: skip all extlibs already provided by the builder's pkg manager
     dep_make_args = make_args + ["with-system-packages={}".format(builder_pm)]

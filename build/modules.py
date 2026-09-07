@@ -1,25 +1,14 @@
 import os
 import sys
 
-from site_scons.sbt.core.utils import dedupe_keep_order
-from sbt.core import conf
+from sbt.core.utils import dedupe_keep_order
+from sbt.core import conf as sbt_conf
+from sbt.core import loader
 
 def is_external_depend(name):
     """A "<project>:<module>" depend refers to a module of an SBT dependency,
     not a local module."""
     return ":" in name
-
-def _get_export_options(conf, key, modules_options):
-    ret = conf.get(f"export-{key}", [])[:]
-    for option in modules_options:
-        ret.extend(conf.get(f"export-{option}-{key}", []))
-    return ret
-
-def _get_active_options(conf, key, modules_options):
-    ret = conf.get(key, [])[:]
-    for option in modules_options:
-        ret.extend(conf.get(f"{option}-{key}", []))
-    return ret
 
 def fill_modlist_from_modules(modules, specific_modules, modlist):
     """ @brief Gets all modules to build from a single module to build
@@ -35,10 +24,16 @@ def fill_modlist_from_modules(modules, specific_modules, modlist):
             raise RuntimeError("No such module: {}".format(module_name))
         modlist[module_name] = conf
         fill_modlist_from_modules(modules, conf.get('depends', []), modlist)
-        #fill_modlist_from_modules(modules, conf.get('conditional-depends', []), modlist)
 
 def __rec_fill_module_real_depends(modules, module_name, to_fill_module_conf):
     """ @brief Fill a single module real dependency tree into modules
+
+        Invariant: after resolve_modules_dependencies ran, every module's
+        "depends" holds its full transitive closure, duplicate-free. Code
+        relying on depends ordering (e.g. scons.py sorting modules by
+        len(depends) as a topological order) relies on this: a dependency's
+        closure is a strict subset of its consumer's, so the length strictly
+        increases along every graph edge.
     """
     conf = modules.get(module_name, None)
     if conf is None:
@@ -108,17 +103,17 @@ def resolve_modules_exports(modules, modules_options):
         resolved_export_flags = []
         resolved_export_link = []
         if conf.get("export-all-libs", False):
-            resolved_export_libs.extend(_get_active_options(conf, "libs", modules_options))
+            resolved_export_libs.extend(sbt_conf.collect_values(conf, "libs", modules_options, base=True))
         if conf.get("export-all-defines", False):
-            resolved_export_defines.extend(_get_active_options(conf, "defines", modules_options))
+            resolved_export_defines.extend(sbt_conf.collect_values(conf, "defines", modules_options, base=True))
         if conf.get("export-all-flags", False):
-            resolved_export_flags.extend(_get_active_options(conf, "flags", modules_options))
+            resolved_export_flags.extend(sbt_conf.collect_values(conf, "flags", modules_options, base=True))
         if conf.get("export-all-link", False):
-            resolved_export_link.extend(_get_active_options(conf, "link", modules_options))
-        resolved_export_libs.extend(_get_export_options(conf, "libs", modules_options))
-        resolved_export_defines.extend(_get_export_options(conf, "defines", modules_options))
-        resolved_export_flags.extend(_get_export_options(conf, "flags", modules_options))
-        resolved_export_link.extend(_get_export_options(conf, "link", modules_options))
+            resolved_export_link.extend(sbt_conf.collect_values(conf, "link", modules_options, base=True))
+        resolved_export_libs.extend(sbt_conf.collect_values(conf, "libs", modules_options, base=True, prefix="export-"))
+        resolved_export_defines.extend(sbt_conf.collect_values(conf, "defines", modules_options, base=True, prefix="export-"))
+        resolved_export_flags.extend(sbt_conf.collect_values(conf, "flags", modules_options, base=True, prefix="export-"))
+        resolved_export_link.extend(sbt_conf.collect_values(conf, "link", modules_options, base=True, prefix="export-"))
         for dep in conf.get("declared-depends", []):
             dep_conf = modules.get(dep, {})
             resolved_export_libs.extend(dep_conf.get("_resolved_export_libs", []))
@@ -171,17 +166,6 @@ def get_modules_packages(app, packet_manager_name, modules_extlibs):
         ret[package_libname] = version
     return ret, missing
 
-def add_conditional_module(conditional_modules, modules, modname):
-    """ @brief check if a conditional module is in modules list
-        @param conditional_modules modules dictionnary from application's conf
-        @param modules modules dict to add to
-        @param modname the module to be added from conditional_modules
-    """
-    conditional_module = conditional_modules.get(modname, None)
-    if conditional_module is None:
-        raise RuntimeError("App does not have conditional module named: " + modname)
-    modules[modname] = conditional_module
-
 def has_conditional_in_modules_list(conditional_modules, modules):
     """ @brief check if a conditional module is in modules list
         @param conditional_modules modules dictionnary from application's conf
@@ -194,28 +178,6 @@ def has_conditional_in_modules_list(conditional_modules, modules):
             ret = True
             break
     return ret
-
-def check_conditional_modules(app):
-    """ @brief check if application conf has conditional modules and check if names are unique
-        @param app the application configuration module
-        @return bool
-    """
-    has_conditionals = hasattr(app, "conditional_modules")
-    if has_conditionals is True:
-        for modname, _ in app.conditional_modules.items():
-            if modname in app.modules:
-                raise RuntimeError("App's conditional module share a name with a module: " + modname)
-    return has_conditionals
-
-def remove_module(app, modname):
-    """ @brief removes a module from application conf
-        @param app the application configuration module
-        @param modname the module to be removed
-    """
-    if hasattr(app, "modules") and modname in app.modules:
-        del app.modules[modname]
-    if hasattr(app, "conditional_modules") and modname in app.conditional_modules:
-        del app.conditional_modules[modname]
 
 def get_module_merged_with_conditionals(app):
     """ @brief merge app.modules and app.conditional_modules
@@ -244,6 +206,18 @@ def get_conditionals_from_env(app):
                 ret.append(key)
     return ret
 
+def _prune_depends(modules, removed):
+    """Drop *removed* module names from every surviving module's depends lists.
+
+    Keeps the graph consistent after a module was excluded from the build:
+    consumers must not reference a module that will never produce libs.
+    """
+    for conf in modules.values():
+        for key in ("depends", "declared-depends", "original-depends"):
+            deps = conf.get(key)
+            if deps:
+                conf[key] = [dep for dep in deps if dep not in removed]
+
 def check_platform(modules, platform, modules_options=None):
     """ @brief sanatize modules based on platform and build selectors
         @param platform current build platform (allowlist check)
@@ -263,11 +237,7 @@ def check_platform(modules, platform, modules_options=None):
                 to_remove.append(name)
     for name in to_remove:
         del modules[name]
-    for conf in modules.values():
-        for key in ("depends", "declared-depends", "original-depends"):
-            deps = conf.get(key)
-            if deps:
-                conf[key] = [dep for dep in deps if dep not in to_remove]
+    _prune_depends(modules, to_remove)
     return to_remove
 
 def check_linkage(modules, linkage, platform=None):
@@ -297,22 +267,30 @@ def check_linkage(modules, linkage, platform=None):
             to_remove.append(name)
     for name in to_remove:
         del modules[name]
+    _prune_depends(modules, to_remove)
     return to_remove
+
+def closure_depth(modules, modname):
+    """Topological proxy: size of the module's resolved depends closure.
+
+    After resolve_modules_dependencies, a dependency's closure is a strict
+    subset of its consumer's, so this length strictly increases along every
+    graph edge. The single sort key for build ordering: ascending picks
+    providers first (scons.py build order), descending yields the
+    consumer-before-provider order static linking needs.
+    """
+    return len(modules.get(modname, {}).get("depends", []))
 
 def _external_module_closure(dep_modules, dep_app_name, modname):
     """Ordered static link closure for an external project module.
 
-    Mirrors create_module_env's LIBS assembly: the module's own archive first,
-    then its transitive dependency archives (deepest first), then the module's
-    resolved export libs (extlibs). MinGW-safe consumer-before-provider order.
+    The module's own archive first, then its transitive dependency archives
+    (deepest first), then the module's resolved export libs (extlibs).
+    MinGW-safe consumer-before-provider order.
     """
     conf = dep_modules[modname]
     depends = conf.get("depends", [])
-    ordered = sorted(
-        depends,
-        key=lambda d: len(dep_modules.get(d, {}).get("depends", [])),
-        reverse=True,
-    )
+    ordered = sorted(depends, key=lambda d: closure_depth(dep_modules, d), reverse=True)
     libs = [f"{dep_app_name}_{modname}"]
     libs += [f"{dep_app_name}_{d}" for d in ordered]
     libs += conf.get("libs", [])
@@ -320,13 +298,12 @@ def _external_module_closure(dep_modules, dep_app_name, modname):
     return dedupe_keep_order(libs)
 
 def _load_external_app(deps_dir, project):
-    from site_scons.sbt.build import sbt_deps
     app_path = os.path.join(deps_dir, project, "app.py")
     if not os.path.isfile(app_path):
         raise RuntimeError(
             "external dependency '{}' not found at {} - run 'make dep'".format(project, app_path))
     try:
-        return sbt_deps._import_app_from_path(app_path)
+        return loader.load_app_from_path(app_path, project_root=os.path.join(deps_dir, project))
     except Exception as e:
         raise RuntimeError(
             "could not load external dependency '{}' app.py: {}".format(project, e))
@@ -382,9 +359,9 @@ def build_modules_conf(app, specific_modules=None, conditionals=None):
     conditionals = list(conditionals or [])
     if not hasattr(app, "modules"):
         raise RuntimeError("App's configuration file should have modules")
-    modes = conf.get_app_modes(app)
-    conf.check_unknown_app_conf_keys(app, modes)
-    conf.check_unknown_conf_keys(get_module_merged_with_conditionals(app), modes)
+    modes = sbt_conf.get_app_modes(app)
+    sbt_conf.check_unknown_app_conf_keys(app, modes)
+    sbt_conf.check_unknown_conf_keys(get_module_merged_with_conditionals(app), modes)
     conditionals.extend(get_conditionals_from_env(app))
     modules = {}
     if specific_modules and specific_modules[0] != '':

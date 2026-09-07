@@ -24,14 +24,14 @@ from sbt.core import loader
 from sbt.core import builder
 from sbt.core import logger
 
-from site_scons.sbt.build import modules
-from site_scons.sbt.core import utils as build_utils
+from sbt.build import modules
+from sbt.core import utils as build_utils
 
-from site_scons.sbt.scons import utils as scons_utils
-from site_scons.sbt.scons import state as scons_state
-from site_scons.sbt.scons import context as scons_context
-from site_scons.sbt.scons import env_factory
-from site_scons.sbt.scons import env_methods
+from sbt.scons import utils as scons_utils
+from sbt.scons import state as scons_state
+from sbt.scons import context as scons_context
+from sbt.scons import env_factory
+from sbt.scons import env_methods
 
 app = loader.load_app()
 
@@ -63,7 +63,8 @@ distribution = builder.do_distribution()
 verbose = builder.has_verbose()
 
 libtype = builder.build_static_libs and "static" or "shared"
-bin_ext = build_platform == "web" and ".html" or (build_platform == "windows" and ".exe" or "")
+bin_ext = builder.get_bin_ext()
+test_bin_ext = builder.get_test_bin_ext()
 
 modules_options = env_factory.compute_modules_options(
     build_platform, libtype, build_mode, compiler, builder
@@ -263,25 +264,25 @@ if build_platform == "windows":
 compiler = builder.build_compiler
 
 if compiler == "gcc":
-    from site_scons.sbt.scons.compilers import gcc as compiler_gcc
+    from sbt.scons.compilers import gcc as compiler_gcc
     compiler_gcc.load_in_env(base_env)
 elif compiler == "clang":
-    from site_scons.sbt.scons.compilers import clang as compiler_clang
+    from sbt.scons.compilers import clang as compiler_clang
     compiler_clang.load_in_env(base_env)
 elif compiler == "mingw":
-    from site_scons.sbt.scons.compilers import mingw as compiler_mingw
+    from sbt.scons.compilers import mingw as compiler_mingw
     compiler_mingw.load_in_env(base_env)
 elif compiler == "zig":
-    from site_scons.sbt.scons.compilers import zig as compiler_zig
+    from sbt.scons.compilers import zig as compiler_zig
     compiler_zig.load_in_env(base_env)
 elif compiler == "filc":
-    from site_scons.sbt.scons.compilers import filc as compiler_filc
+    from sbt.scons.compilers import filc as compiler_filc
     compiler_filc.load_in_env(base_env)
 elif compiler == "em":
-    from site_scons.sbt.scons.compilers import emscripten as compiler_emscripten
+    from sbt.scons.compilers import emscripten as compiler_emscripten
     compiler_emscripten.load_in_env(base_env)
 elif compiler == "ndk":
-    from site_scons.sbt.scons.compilers import ndk as compiler_ndk
+    from sbt.scons.compilers import ndk as compiler_ndk
     compiler_ndk.load_in_env(base_env)
 
 ccache = ""
@@ -372,6 +373,7 @@ ctx = scons_context.BuildContext(
     modules_lst = modules_lst,
     is_dry_run = is_dry_run,
     bin_ext = bin_ext,
+    test_ext = test_bin_ext,
     verbose = verbose,
     distribution = distribution,
 )
@@ -384,7 +386,7 @@ env_methods.register_methods(base_env, ctx)
 
 # sorting build order by module dependencies size
 modules_build_order = list(build_modules.values())
-modules_build_order.sort(key=lambda obj: len(obj["depends"]))
+modules_build_order.sort(key=lambda conf: modules.closure_depth(build_modules, conf["modname"]))
 
 # Configure env and call scons.py from every configured module
 built = {}

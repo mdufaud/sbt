@@ -2,41 +2,26 @@
 # Test
 ########
 
-.PHONY: test # Build modules, tests and runs tests ([comma_separated_modules|all|ls] [filter] [repeat=x])
-.PHONY: itest  nointeract_test # Build and run tests with stdin closed
-.PHONY: gdbtest  gdb_test # Build and run tests with gdb debugger
+# Every goal handled here is declared ONCE in args.mk (TEST_GOALS) — the same
+# list drives the args.mk stub branch and this .PHONY. Goal reference:
+#   test                     build modules, tests and run tests ([modules|all|ls] [filter] [repeat=x])
+#   itest nointeract_test    same with stdin closed (non-interactive)
+#   gdbtest gdb_test         run tests under gdb
+#   asantest asan_test iasantest nointeract_san_test          address sanitizer
+#   ubsantest ubsan_test iubsantest nointeract_ubsan_test    undefined behavior sanitizer
+#   tsantest tsan_test itsantest nointeract_tsan_test         thread sanitizer
+#   lsantest lsan_test ilsantest nointeract_lsan_test         leak sanitizer
+#   msantest msan_test imsantest nointeract_msan_test         memory sanitizer (clang only)
+#   hwasantest hwasan_test ihwasantest nointeract_hwasan_test hwaddress sanitizer (arm64 only)
+#   covtest coverage_test    coverage instrumentation, emits coverage.xml (cobertura)
+#   valtest valgrind_test ivaltest nointeract_valgrind_test   valgrind
+#   lvaltest valgrind_leak_test ilvaltest nointeract_valgrind_leak_test   valgrind leak check
+#   ttest strace_test ittest nointeract_strace_test           strace
+#   ivtest iltest             non-interactive valgrind / valgrind leak check
+.PHONY: $(TEST_GOALS)
 
-.PHONY: asantest  asan_test # Build and run tests with address sanitizer and runs tests
-.PHONY: iasantest nointeract_san_test # Build and run tests with address sanitizer and runs tests
-
-.PHONY: ubsantest  ubsan_test # Build and run tests with undefined behavior sanitizer
-.PHONY: iubsantest nointeract_ubsan_test # Build and run tests with undefined behavior sanitizer (non-interactive)
-
-.PHONY: tsantest  tsan_test # Build and run tests with thread sanitizer
-.PHONY: itsantest nointeract_tsan_test # Build and run tests with thread sanitizer (non-interactive)
-
-.PHONY: lsantest  lsan_test # Build and run tests with leak sanitizer
-.PHONY: ilsantest nointeract_lsan_test # Build and run tests with leak sanitizer (non-interactive)
-
-.PHONY: msantest  msan_test # Build and run tests with memory sanitizer (clang only)
-.PHONY: imsantest nointeract_msan_test # Build and run tests with memory sanitizer (non-interactive)
-
-.PHONY: hwasantest  hwasan_test # Build and run tests with hwaddress sanitizer (arm64 only)
-.PHONY: ihwasantest nointeract_hwasan_test # Build and run tests with hwaddress sanitizer (non-interactive)
-
-.PHONY: covtest coverage_test # Build and run tests with coverage and emit coverage.xml (cobertura)
-
-.PHONY: valtest  valgrind_test # Build and run tests with valgrind debugger
-.PHONY: ivaltest nointeract_valgrind_test # Build and run tests with valgrind debugger (non-interactive)
-
-.PHONY: lvaltest  valgrind_leak_test # Build and run tests with valgrind leak checking debugger
-.PHONY: ilvaltest nointeract_valgrind_leak_test # Build and run tests with valgrind leak checking debugger (non-interactive)
-
-.PHONY: ttest  strace_test # Build and run tests with strace
-.PHONY: ittest nointeract_strace_test # Build and run tests with strace (non-interactive)
-
-# find string 'test' in target
-ifneq ($(findstring test,$(MAKEARG_1)), )
+# enter the test branch only for goals in the exact TEST_GOALS list (args.mk)
+ifneq ($(MAKEARG_TEST_GOAL), )
 
 # --gtest_color=(yes|no|auto) (Enable/disable colored output. The default is auto)
 # --gtest_brief=1 (Only print test failures.)
@@ -91,11 +76,16 @@ endif
 COMMA := ,
 MODULES_NAME_SPLIT := $(subst $(COMMA), ,$(MODULES_NAME))
 
+# JSON build description consumed by generate.sh; written by the recipe below
+# (not at make parse time) so a plain `make` never touches the filesystem.
+SBT_ENV_JSON_PATH := $(BUILD_PATH)/sbt_env.json
+
 test: test = 1
 test: build
 	$(call mk_log_info,makefile,starting tests in build: $(TEST_PATH))
 	$(if $(TEST_RUNNER),$(call mk_log_warning,makefile,test runner '$(TEST_RUNNER)' active - DEBUGGER and sanitizer options disabled (unsupported under emulation)))
-	$(QUIET) env SBT_ENV_JSON="$(SBT_ENV_PATH)" \
+	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
+	$(QUIET) env SBT_ENV_JSON="$(SBT_ENV_JSON_PATH)" \
 					bash $(MAKEFILE_TOOLS)/scripts/tests/generate.sh
 	$(QUIET) env DEBUGGER="$(if $(TEST_RUNNER),,$(DEBUGGER))" \
 					DEBUGGER_ARGS="$(if $(TEST_RUNNER),,$(DEBUGGER_ARGS))" \

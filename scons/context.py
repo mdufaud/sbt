@@ -37,5 +37,6 @@ class BuildContext:
     modules_lst: list       # empty list means "all modules"
     is_dry_run: bool
     bin_ext: str            # "" / ".exe" / ".html"
+    test_ext: str           # "" / ".exe" / ".js"
     verbose: bool
     distribution: bool
