@@ -38,10 +38,10 @@ from sbt.vcpkg.patches import generate_overlay_ports
 
 app = loader.load_app()
 
+# VCPKG_ROOT is the standard env var for sharing a vcpkg installation directory
+vcpkg_dir_path = builder.vcpkg_path
 vcpkg_bin_path = os.getenv("VCPKG_PATH", None)
 if vcpkg_bin_path is None:
-    # VCPKG_ROOT is the standard env var for sharing a vcpkg installation directory
-    vcpkg_dir_path = builder.vcpkg_path
     vcpkg_bin_path = os.path.join(vcpkg_dir_path, "vcpkg")
     if builder.is_msys():
         vcpkg_bin_path += ".exe"
@@ -208,6 +208,32 @@ def _check_vcpkg():
         logger.error(f"VCPKG path does not exist: {vcpkg_bin_path}")
         logger.error(f"deploy VCPKG with: make vcpkg deploy")
         raise RuntimeError("no VCPKG installed")
+    _check_vcpkg_baseline()
+
+
+def _git_vcpkg(*args):
+    from subprocess import run as subprocess_run
+    return subprocess_run(["git", "-C", vcpkg_dir_path, *args], capture_output=True, text=True)
+
+
+def _check_vcpkg_baseline():
+    """Versioning resolves the manifest builtin-baseline with git: a clone missing
+    that commit (shallow clone, checkout far behind) dies mid-install with an
+    obscure read-tree error — repair here or fail with the exact command."""
+    if not os.path.exists(os.path.join(vcpkg_dir_path, ".git")):
+        return
+    baseline = _get_baseline(app)
+    pinned = f"{baseline}^{{commit}}"
+    if _git_vcpkg("cat-file", "-e", pinned).returncode == 0:
+        return
+    logger.warning(f"vcpkg clone is missing the manifest baseline: {baseline}")
+    shallow = _git_vcpkg("rev-parse", "--is-shallow-repository")
+    repair = ["fetch", "--unshallow"] if shallow.stdout.strip() == "true" else ["fetch", "origin", baseline]
+    fetch = _git_vcpkg(*repair)
+    if _git_vcpkg("cat-file", "-e", pinned).returncode != 0:
+        logger.error(f"cannot resolve vcpkg baseline {baseline}: {fetch.stderr.strip()}")
+        logger.error(f"repair the clone with: git -C {vcpkg_dir_path} fetch --unshallow")
+        raise RuntimeError("vcpkg baseline unreachable")
 
 
 def _append_generated_overlay_ports(args):

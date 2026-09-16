@@ -76,7 +76,7 @@ Pin every such var explicitly in `args` so it overrides the leaked value:
 By default, SBT dependencies share your project's `.vcpkg/` installation via the
 `VCPKG_ROOT` environment variable. This means:
 
-- vcpkg is only bootstrapped once
+- vcpkg is only bootstrapped once (re-bootstrapped automatically when the clone pins a newer tool release)
 - packages common to both projects are compiled once
 - each project still has its own `build/` and `extlib/` directories
 

@@ -54,7 +54,7 @@ make test m=core               # build + run tests
 
 ## Requirements
 
-- Python 3 and `jq` (checked by the Makefile)
+- Python 3 (checked by the Makefile)
 - SCons
 - A C/C++ toolchain (GCC or Clang); cross-compilation toolchains as needed per target (see [docs/cross-compilation.md](docs/cross-compilation.md))
 - vcpkg is bootstrapped automatically by `make dep`

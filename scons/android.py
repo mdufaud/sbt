@@ -376,6 +376,21 @@ def _inject_build_cache_dir(settings_path, cache_dir):
         f.write(content)
 
 
+def sign_config_path(sign_config):
+    """Return android_sign_config as an absolute path.
+
+    Relative values anchor to the project root (the documented contract):
+    the file is registered as a build input while module SConscripts run
+    with the module dir as cwd, so abspath would resolve the wrong tree.
+    """
+    if not isinstance(sign_config, str) or not sign_config.strip():
+        return None
+    path = sign_config.strip()
+    if os.path.isabs(path):
+        return path
+    return os.path.join(builder.build_root_path, path)
+
+
 def _build_sign_block(sign_config):
     """Return (keystore loader, signingConfigs decl, release buildType ref).
 
@@ -387,9 +402,9 @@ def _build_sign_block(sign_config):
     sign_config is absent/empty, all three strings are empty and the release APK
     is left unsigned.
     """
-    if not isinstance(sign_config, str) or not sign_config.strip():
+    props_path = sign_config_path(sign_config)
+    if props_path is None:
         return "", "", ""
-    props_path = os.path.abspath(sign_config.strip())
     if not os.path.isfile(props_path):
         raise ValueError(
             f"sbt: android_sign_config points to a missing keystore properties "

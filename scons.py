@@ -545,6 +545,7 @@ def after_build():
         scons_utils.build_print_built(
             build_state.generated_bins, build_state.generated_demos, build_state.generated_tests
         )
+        builder.generate_runner()
         # optional user callback, independent from the built-artefacts report
         if hasattr(app, "on_build_success"):
             app.on_build_success(build_modules, builder)

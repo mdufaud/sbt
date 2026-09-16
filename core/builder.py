@@ -597,7 +597,7 @@ def get_test_runner_env():
     env = []
     if runner == "wine":
         # keep the prefix in the build tree so `make clean` wipes it
-        env.append("WINEPREFIX=" + join(build_test_path, ".wine"))
+        env.append("WINEPREFIX=" + join(build_path, ".wine"))
         # silence wine chatter polluting gtest output
         env.append("WINEDEBUG=-all")
         # stop winemenubuilder writing desktop entries outside WINEPREFIX
@@ -616,6 +616,29 @@ def get_test_runner_env():
             env.append("QEMU_LD_PREFIX=" + abspath(sysroot))
             env.append("QEMU_SET_ENV=LD_LIBRARY_PATH=" + ":".join([build_lib_path, build_extlib_lib_path]))
     return env
+
+def generate_runner():
+    """Write <build>/runner.sh + runner.env: run any built binary with the right
+    emulator (runner.sh bin/foo [args...]). Also drives the test executor on
+    cross builds — regenerate whenever the build config changes."""
+    template = join(sbt_path, "scripts", "runner.sh")
+    if not os.path.isfile(template):
+        logger.warning("runner template missing: {}".format(template))
+        return
+    os.makedirs(build_path, exist_ok=True)
+    dst = join(build_path, "runner.sh")
+    shutil.copyfile(template, dst)
+    os.chmod(dst, 0o755)
+    entries = {"TEST_RUNNER": get_test_runner()}
+    for entry in get_test_runner_env():
+        key, _, val = entry.partition("=")
+        entries[key] = val
+    with open(join(build_path, "runner.env"), "w") as f:
+        import shlex
+        for key in sorted(entries):
+            f.write("export {}={}\n".format(key, shlex.quote(str(entries[key]))))
+    if entries["TEST_RUNNER"]:
+        logger.info("runner generated: {} (emulator: {})".format(dst, entries["TEST_RUNNER"]))
 
 ###############################################################################
 # App settings sanitizer
@@ -811,6 +834,8 @@ def copy_dll_to_build(generated_lld_binaries):
     build_need_dll_path_lst = [build_bin_path]
     if build_demo:
         build_need_dll_path_lst.append(build_demo_path)
+    if build_tests:
+        build_need_dll_path_lst.append(join(build_test_path, "bin"))
 
     do_copy = False
     for path in build_need_dll_path_lst:
@@ -858,6 +883,7 @@ def copy_dll_to_build(generated_lld_binaries):
             queue.extend(_pe_dll_imports(resolved))
 
     dll_found = set(dll_found.values())
+    expected_dll_names = {os.path.basename(dll).lower() for dll in dll_found}
 
     if has_verbose():
         for dll in dll_found:
@@ -868,6 +894,13 @@ def copy_dll_to_build(generated_lld_binaries):
             continue
         if has_verbose():
             logger.debug(f"Copying DLLs found into: {build_dll_path}")
+        # wine resolves imports from the executable's directory before WINEPATH,
+        # so a leftover dll (renamed/removed module, manual drop) shadows the
+        # fresh one — prune anything this run no longer expects
+        for name in os.listdir(build_dll_path):
+            if name.lower().endswith(".dll") and name.lower() not in expected_dll_names:
+                logger.info(f"pruning stale dll: {join(build_dll_path, name)}")
+                os.remove(join(build_dll_path, name))
         for dll_from in dll_found:
             dll_to = os.path.join(build_dll_path, os.path.basename(dll_from))
 

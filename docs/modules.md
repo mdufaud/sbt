@@ -481,6 +481,30 @@ make compiler=clang            # Use clang
 make def=MY_DEFINE=1           # Add preprocessor define
 ```
 
+#### Build options reference
+
+Options are passed as `make <option>=<value>` (environment variables work too). Cross-compilation options (`machine=`, `platform=`, `libc=`, `compiler=`) are detailed in [cross-compilation.md](cross-compilation.md), `test=`/`demo=` targets in the [Testing](#testing) section below.
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `m=` / `modules=` | all | Build only the listed modules (plus their dependencies). See [`m=` vs `fmod=`](#m-vs-fmod). |
+| `fmod=` | | Build only the listed modules, **without** their dependencies. |
+| `mode=` | `default` | Build variant (`default`, `debug`, `release`, or project-defined modes). |
+| `static=1` | off | Build static libraries (`.a`) instead of shared. |
+| `combined=1` | off | Also produce a **single final library** `<app.name>` in `build/<...>/lib/` containing the objects of **all** built modules. Static (`.a`) when `static=1`, shared otherwise. Module-internal libs are absorbed; external libs (vcpkg/system) remain link-time dependencies for the consumer. Handy for distributing a one-file SDK. |
+| `test=1` / `t=1` | off | Build test binaries. |
+| `demo=1` | off | Build demo executables. |
+| `compile_commands=1` | **on** | Generate `compile_commands.json` (clangd) in the build directory. `compile_commands=0` to disable. |
+| `nocache=1` | off | Disable ccache for this build. |
+| `v=1` / `verbose=1` | off | Verbose output. |
+| `cpu=` | `$CPU` | Target CPU for `-march=`/`-mcpu=` (e.g. `cortex-a72`, `x86-64-v3`). |
+| `triplet=` | auto | Override the vcpkg triplet used by `make dep`. |
+| `cross_sysroot=` | | Path to a cross sysroot; sets `PKG_CONFIG_SYSROOT_DIR` and pkg-config search paths for cross builds. |
+| `with-system-packages=1` | off | `make dep`: assume listed system packages are already installed instead of building them via vcpkg. |
+| `fgit=1` | off | `make dep`: force re-clone of git dependencies. |
+| `asan=1`, `ubsan=1`, ... | off | Sanitizers — see below. |
+| `coverage=1` | off | gcovr coverage instrumentation — see below. |
+
 #### Sanitizers (build flags)
 
 | Flag | Sanitizer | Compiler | Notes |

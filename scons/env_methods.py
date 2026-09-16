@@ -148,7 +148,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     build_type = scons_android.get_gradle_build_type(ctx.app, builder.build_mode)
     gradle_cache_dir = scons_android.get_gradle_cache_dir()
     ndk_version = builder.get_ndk_version() or (os_path.basename(ndk_root) if ndk_root else None)
-    sign_config = getattr(ctx.app, "android_sign_config", None)
+    sign_config = scons_android.sign_config_path(getattr(ctx.app, "android_sign_config", None))
 
     # Staging is input-driven, not rebuilt on every run: bundled templates,
     # the module's android/ overrides, keystore config. The stage action

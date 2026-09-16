@@ -1,8 +1,10 @@
 #!/bin/bash
 # Static test executor. Copied verbatim into <build>/test/execute_tests.sh by
-# generate.sh, which writes the sibling .env (paths + cross-test runner vars).
-# Sourced config: APP_NAME TEST_PATH TEST_BIN_PATH PROJECT_ROOT_PATH TEST_RUNNER
-# TEST_BIN_EXT (+ WINEPATH / QEMU_* when emulating).
+# generate.sh, which writes the sibling .env (paths + app test env).
+# Sourced config: APP_NAME TEST_PATH TEST_BIN_PATH PROJECT_ROOT_PATH
+# TEST_RUNNER TEST_BIN_EXT. Cross builds launch test binaries through the
+# build's runner.sh (wine/qemu/node + its env); native ones may wrap in a
+# debugger directly.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
@@ -13,6 +15,15 @@ source "$profile_dir/${TEST_PROFILE:-gtest}.sh"
 cd "$TEST_PATH"
 
 log_dir="$TEST_PATH/logs"
+
+# Cross builds go through the build runner (it applies wine/qemu/node and its
+# env); native builds wrap in the debugger directly — gdb must attach to the
+# binary, not to a wrapper script.
+if [ -n "$TEST_RUNNER" ]; then
+    TEST_WRAPPER="$BUILD_PATH/runner.sh"
+else
+    TEST_WRAPPER="env $DEBUGGER $DEBUGGER_ARGS"
+fi
 
 module_list="$2"
 if [ -z "${module_list// }" ] || [ "${module_list// }" = "all" ]; then
@@ -110,7 +121,7 @@ execute_tests()
             brief_args="$TEST_BRIEF_FLAGS"
         fi
 
-        cmd="env $DEBUGGER $DEBUGGER_ARGS $TEST_RUNNER $test_bin_path \
+        cmd="$TEST_WRAPPER $test_bin_path \
                 $TEST_RUN_FLAGS \
                 ${TEST_FILTER_FLAG//FILTER/$test_filter} \
                 $repeat_args $brief_args $TEST_ARGS"
@@ -155,7 +166,7 @@ list_tests()
 
         test_bin_path=$TEST_BIN_PATH/${APP_NAME}_${module}${TEST_BIN_EXT}
 
-        $TEST_RUNNER $test_bin_path $TEST_LIST_FLAGS
+        $TEST_WRAPPER $test_bin_path $TEST_LIST_FLAGS
     done
 )
 

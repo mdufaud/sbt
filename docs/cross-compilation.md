@@ -389,15 +389,25 @@ These allow `make machine=aarch64` to resolve to the `arm64` architecture entry.
 ## Running tests on cross targets
 
 `make itest` / `make test` run the unit tests of cross-built binaries through an emulator,
-selected automatically — no new flag. The runner is computed in
-[builder.py:get_test_runner()](../core/builder.py) and threaded through `sbt.mk` into the generated
-`build/.../test/execute_tests.sh`.
+selected automatically — no new flag. Every successful build also generates
+`build/last/runner.sh` (+ sibling `runner.env`), which runs **any** built binary — bin, demo or
+test — under that same emulator ([builder.py:generate_runner()](../core/builder.py)):
+
+```bash
+build/last/runner.sh build/last/bin/toto.exe   # windows build -> wine
+cd build/last && ./runner.sh bin/toto.exe      # the binary path is exec'd as passed
+build/last/runner.sh "$PWD/build/last/test/bin/myapp_util"  # what execute_tests.sh runs on cross
+```
+
+The runner is computed in [builder.py:get_test_runner()](../core/builder.py) and threaded through
+`sbt.mk` into the generated `build/.../test/execute_tests.sh`.
 
 | Target | Runner | Notes |
 |--------|--------|-------|
 | native / same-ISA narrower (x86 on x86_64, arm32 on arm64) | *(none)* | runs directly |
-| `platform=windows` | `wine` | test binary has `.exe` suffix |
+| `platform=windows` | `wine` | binaries have the `.exe` suffix |
 | foreign-arch linux (`machine=arm64/riscv64/...`) | `qemu-<arch>` | `qemu-aarch64`, `qemu-riscv64`, ... |
+| `compiler=em` | `node` (tests only) | `.js` tests; `.html` entries open in a browser (`make serve_bin`) |
 
 ```bash
 # qemu-user — static-musl is the simplest cross config (self-contained, no sysroot)
@@ -413,12 +423,12 @@ make itest m=util platform=windows                     # runs under wine
 Rules when a runner is active:
 - **`DEBUGGER` (gdb/valgrind/strace) and all sanitizers (asan/ubsan/tsan/...) are forced off**
   with a warning — none work under qemu-user/wine.
-- **wine** always gets `WINEPREFIX=build/.../test/.wine` so the wine filesystem lives in the
-  build tree and dies with `make clean` instead of polluting `~/.wine`.
+- **wine** always gets `WINEPREFIX=build/.../.wine` so the wine filesystem lives in the build
+  tree and dies with `make clean` instead of polluting `~/.wine`.
 - **static** builds need no lib-search env. **dynamic** builds inject lib search paths: wine →
   `WINEPATH=build/lib;extlib/lib;extlib/bin`; qemu-glibc → `QEMU_LD_PREFIX=/usr/<gnu-triplet>` +
-  `QEMU_SET_ENV=LD_LIBRARY_PATH=...`. Runner env is written as `export` lines into `.env`
-  (sourced, not splatted) so `;`/spaces are safe.
+  `QEMU_SET_ENV=LD_LIBRARY_PATH=...`. Runner env is written as `export` lines into
+  `<build>/runner.env` (sourced by `runner.sh`, not splatted) so `;`/spaces are safe.
 
 Host-compat is keyed on a native-runnable target set (`builder.host_can_run`), NOT on
 `is_cross_building()` — a same-ISA musl-on-glibc build is "cross" but still runs natively.

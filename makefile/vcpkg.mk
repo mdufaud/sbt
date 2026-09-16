@@ -74,7 +74,16 @@ endif
 
 vcpkg_deploy:
 	$(QUIET) if [ ! -d "$(VCPKG_PATH)" ]; then git clone https://github.com/microsoft/vcpkg $(VCPKG_PATH); fi
-	$(QUIET) if [ ! -f "$(VCPKG_BIN)" ]; then $(VCPKG_PATH)/bootstrap-vcpkg.sh -disableMetrics; fi
+	$(QUIET) if [ ! -f "$(VCPKG_BIN)" ]; then \
+		$(VCPKG_PATH)/bootstrap-vcpkg.sh -disableMetrics; \
+	else \
+		pinned_release=`sed -n 's/^VCPKG_TOOL_RELEASE_TAG=//p' $(VCPKG_PATH)/scripts/vcpkg-tool-metadata.txt 2>/dev/null`; \
+		binary_release=`$(VCPKG_BIN) version 2>/dev/null | sed -n 's/.*version \([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)-.*/\1/p'`; \
+		if [ -n "$$pinned_release" ] && [ -n "$$binary_release" ] && [ "$$pinned_release" != "$$binary_release" ]; then \
+			$(call echo_log_info,vcpkg,tool release moved ($$binary_release -> $$pinned_release): re-bootstrapping); \
+			$(VCPKG_PATH)/bootstrap-vcpkg.sh -disableMetrics; \
+		fi; \
+	fi
 
 ############################
 # SBT external dependencies

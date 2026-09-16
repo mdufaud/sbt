@@ -348,6 +348,7 @@ clean:
 	rm -rf $(TEST_PATH)
 	rm -rf $(DEMO_PATH)
 	rm -rf $(BUILD_PATH)/gradle
+	rm -rf $(BUILD_PATH)/.wine
 	rm -f $(BUILD_PATH)/compile_commands.json
 
 clean_dep:
