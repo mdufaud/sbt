@@ -1,13 +1,18 @@
 #!/bin/bash
 # Static test executor. Copied verbatim into <build>/test/execute_tests.sh by
-# generate.sh, which writes the sibling .env (paths + app test env).
-# Sourced config: APP_NAME TEST_PATH TEST_BIN_PATH PROJECT_ROOT_PATH
-# TEST_RUNNER TEST_BIN_EXT. Cross builds launch test binaries through the
-# build's runner.sh (wine/qemu/node + its env); native ones may wrap in a
-# debugger directly.
+# generate.sh, which writes the sibling .env (paths + platform facts + app test
+# env). Sourced config: APP_NAME TEST_PATH TEST_BIN_PATH PROJECT_ROOT_PATH
+# TEST_RUNNER TEST_BIN_EXT and the SBT_* platform facts. Cross builds launch
+# test binaries through the build's runner.sh (wine/qemu/node + its env);
+# native ones may wrap in a debugger directly.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
+# before the profile source: profiles reference $REPORT_DIR; unset-only default
+# so an explicit empty TEST_REPORT_FLAGS stays an opt-out
+export REPORT_DIR="$TEST_PATH/reports"
+mkdir -p "$REPORT_DIR"
+: "${TEST_REPORT_FLAGS=--gtest_output=xml:$REPORT_DIR/}"
 # Test framework profile (gtest by default). Sourced after .env so any flag the
 # project already exported via app.generate_test_command takes precedence.
 profile_dir="${TEST_PROFILE_DIR:-$SCRIPT_DIR/profiles}"
@@ -104,6 +109,13 @@ print_failures()
     fi
 )
 
+# summary.json: module -> exit code + report/log paths (written even on failure)
+write_summary()
+{
+    "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
+        "$TEST_PATH" "$APP_NAME" $module_list > "${TEST_PATH}/summary.json"
+}
+
 execute_tests()
 (
     for module in $module_list;
@@ -121,8 +133,14 @@ execute_tests()
             brief_args="$TEST_BRIEF_FLAGS"
         fi
 
+        report_args=
+        if [ ! -z "${TEST_REPORT_FLAGS:-}" ]; then
+            report_args="$TEST_REPORT_FLAGS"
+        fi
+
         cmd="$TEST_WRAPPER $test_bin_path \
                 $TEST_RUN_FLAGS \
+                $report_args \
                 ${TEST_FILTER_FLAG//FILTER/$test_filter} \
                 $repeat_args $brief_args $TEST_ARGS"
 
@@ -148,12 +166,17 @@ execute_tests()
         fi
     done
 
+    write_summary
     print_failures
 )
 
 list_tests()
 (
     modules=( $module_list )
+    if [ ${#modules[@]} -eq 0 ]; then
+        echo "no test binaries found in ${TEST_BIN_PATH}" >&2
+        return 1
+    fi
     modules_count=${#modules[@]}
 
     for module in $module_list;

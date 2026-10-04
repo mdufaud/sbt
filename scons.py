@@ -216,6 +216,17 @@ for key, value in ARGLIST:
     if key == "def":
         base_env.Append(CPPDEFINES=[value])
 
+# platform facts for every module/test; opt out via app.sbt_platform_defines = False
+# (values are '\"x\"': SCons strips plain quotes when shell-executing the command)
+if getattr(app, "sbt_platform_defines", True):
+    base_env.Append(CPPDEFINES=[
+        ("SBT_PLATFORM", '\\"{}\\"'.format(builder.build_platform)),
+        ("SBT_MACHINE", '\\"{}\\"'.format(builder.build_machine)),
+        ("SBT_LIBC", '\\"{}\\"'.format(builder.libc)),
+        ("SBT_MODE", '\\"{}\\"'.format(builder.build_mode)),
+        ("SBT_CROSS", 1 if builder.is_cross_building() else 0),
+    ])
+
 # Build output
 if not verbose:
     base_env.Replace(

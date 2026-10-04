@@ -86,10 +86,12 @@ def _build_env():
         "build": {
             "platform": builder.build_platform,
             "machine": builder.build_machine,
+            "libc": builder.libc,
             "mode": builder.build_mode,
             "compiler": builder.build_compiler_version,
             "triplet": builder.get_gnu_triplet(),
             "libs_type": builder.libs_type,
+            "cross": builder.is_cross_building(),
         },
         "paths": _relative_paths(builder.build_path),
         "test": {
@@ -174,9 +176,11 @@ def _makevars():
     lines = [
         "PLATFORM := {}".format(env["build"]["platform"]),
         "MACHINE := {}".format(env["build"]["machine"]),
+        "LIBC := {}".format(env["build"]["libc"]),
         "COMPILE_MODE := {}".format(env["build"]["mode"]),
         "COMPILER := {}".format(env["build"]["compiler"]),
         "GNU_TRIPLET := {}".format(env["build"]["triplet"]),
+        "CROSS := {}".format(1 if env["build"]["cross"] else 0),
         "BUILD_PATH := {}".format(env["build_path"]),
         "APP_NAME := {}".format(env["app_name"]),
         "MODULES_DIR := {}".format(env["modules_path"]),

@@ -555,3 +555,44 @@ make msantest / make imsantest      # Tests with MSan (clang only)
 make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
 ```
+
+#### What the tests get (self-contained run environment)
+
+`make test` regenerates `<build_path>/test/.env` from the build description before each
+run; `execute_tests.sh` sources it and runs each module's test binary from that module's
+own source directory (so relative fixture paths resolve), with logs per module under
+`<build_path>/test/logs/<module>/`.
+
+The `.env` exports, in order (later wins — a project `app.generate_test_env` / addon can
+override any engine value):
+
+1. **Engine paths**: `APP_NAME`, `PROJECT_ROOT_PATH`, `MODULES_PATH`, `BUILD_PATH`,
+   `LIB_PATH`, `BIN_PATH`, `ETC_PATH`, `SHARE_PATH`, `EXTLIB_PATH`, `EXTLIB_LIB_PATH`,
+   `TEST_PATH`, `TEST_BIN_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`.
+2. **Engine platform facts**: `SBT_PLATFORM`, `SBT_MACHINE`, `SBT_LIBC`, `SBT_MODE`,
+   `SBT_COMPILER`, `SBT_TRIPLET`, `SBT_LIBS_TYPE`, `SBT_CROSS` (`1`/`0`) — what the test
+   process would otherwise have to guess from `uname`.
+3. **App/addon test env**: whatever `app.generate_test_env(builder)` returns, then
+   `TEST_RUN_FLAGS`-style overrides from `app.generate_test_command(builder)`.
+
+Platform facts are also compile-time defines on every module and test binary:
+`SBT_PLATFORM`, `SBT_MACHINE`, `SBT_LIBC`, `SBT_MODE` (string literals) and `SBT_CROSS`
+(`0`/`1`) — e.g. `constexpr bool is_android = SBT_PLATFORM == std::string_view("android");`.
+Opt out with `sbt_platform_defines = False` in `app.py` or an addon include. The same
+facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`, `$(COMPILE_MODE)`,
+`$(COMPILER)`, `$(GNU_TRIPLET)`, `$(CROSS)`.
+
+#### Machine-readable reports
+
+Besides the colored console recap, each run writes:
+
+- `<build_path>/test/reports/<app>_<module>.xml` — one gtest XML per module
+  (`--gtest_output=xml:$REPORT_DIR/`, the engine default assigned through
+  `TEST_REPORT_FLAGS`; set it empty to disable or to another flag — from the env, an
+  app/addon `.env` export, or a custom profile — to change it).
+- `<build_path>/test/summary.json` — `{ "app", "modules": { <module>: { "exit_code",
+  "report", "log" } } }`, written even when tests fail. Post-process it (upload, gate,
+  badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
+
+`make test ls` lists the tests of each module and exits non-zero when no test binary was
+built.
