@@ -2,8 +2,11 @@
 Declarative vcpkg port overlays for SBT.
 
 Lets app.py declare `vcpkg_ports = {"<port>": {...}}` to override a stock vcpkg
-port without hand-writing a full manual overlay. For each declared port we copy
-the stock port into a generated overlay dir and apply the declared edits.
+port without hand-writing a full manual overlay. For each declared port the
+stock port is materialized from the pinned baseline tree into a generated
+overlay dir and the declared edits are applied: overlays bypass registry
+versioning, so the recipes must come from the commit the manifest resolves at,
+not from the working tree of the vcpkg checkout (which drifts with upstream).
 
 Per-port schema (all keys optional):
     "patches":        [<path>, ...]   patch files (rel to addon/vcpkg/) copied
@@ -185,29 +188,38 @@ def _merge_manifest(dst_port: str, port: str, manifest: dict) -> None:
         f.write("\n")
 
 
-def _portfile_matches_baseline(vcpkg_root: str, baseline: str, port: str, worktree_portfile: str) -> bool | None:
-    """
-    Compare the working-tree portfile against the baseline-pinned tree.
-    Returns True/False, or None if the git lookup failed (cannot decide).
-    """
+def _materialize_baseline_port(vcpkg_root: str, baseline: str, port: str, dst_port: str) -> None:
+    """Write the ports/<port> tree at the pinned baseline into dst_port."""
     proc = subprocess.run(
-        ["git", "-C", vcpkg_root, "show", f"{baseline}:ports/{port}/portfile.cmake"],
+        ["git", "-C", vcpkg_root, "ls-tree", "-r", "--name-only", baseline, "--", f"ports/{port}"],
         capture_output=True,
         check=False,
     )
     if proc.returncode != 0:
-        return None
-    try:
-        with open(worktree_portfile, "rb") as f:
-            current = f.read()
-    except OSError:
-        return None
-    return current == proc.stdout
+        logger.error(
+            f"vcpkg_ports: cannot read ports/{port} at baseline {baseline[:12]} in {vcpkg_root}:\n"
+            f"{proc.stderr.decode(errors='replace').strip()}"
+        )
+        raise RuntimeError(f"vcpkg_ports: baseline '{baseline[:12]}' unreachable for port '{port}'")
+    files = proc.stdout.decode().splitlines()
+    if not files:
+        logger.error(f"vcpkg_ports: port '{port}' not found at baseline {baseline[:12]}")
+        raise RuntimeError(f"vcpkg_ports: unknown port '{port}'")
+    os.makedirs(dst_port)
+    for path in files:
+        blob = subprocess.run(
+            ["git", "-C", vcpkg_root, "show", f"{baseline}:{path}"],
+            capture_output=True,
+            check=True,
+        )
+        dst = os.path.join(dst_port, *path.removeprefix(f"ports/{port}/").split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst, "wb") as f:
+            f.write(blob.stdout)
 
 
 def generate_overlay_ports(
     app,
-    vcpkg_ports_path: str,
     gen_dir: str,
     vcpkg_root: str,
     baseline: str,
@@ -215,7 +227,8 @@ def generate_overlay_ports(
     addon_overlay_ports_path: str,
 ) -> str | None:
     """
-    Build generated overlay ports from app.vcpkg_ports.
+    Build generated overlay ports from app.vcpkg_ports, sourced from the
+    baseline tree.
 
     Returns the gen_dir path to pass as --overlay-ports, or None when no
     ports are declared. Raises RuntimeError on misconfiguration.
@@ -237,22 +250,9 @@ def generate_overlay_ports(
             )
             raise RuntimeError(f"vcpkg_ports conflict for port '{port}'")
 
-        src_port = os.path.join(vcpkg_ports_path, port)
-        src_portfile = os.path.join(src_port, "portfile.cmake")
-        if not os.path.isfile(src_portfile):
-            logger.error(f"vcpkg_ports: stock port not found: {src_port}")
-            raise RuntimeError(f"vcpkg_ports: unknown port '{port}'")
-
-        matches = _portfile_matches_baseline(vcpkg_root, baseline, port, src_portfile)
-        if matches is False:
-            logger.warning(
-                f"vcpkg_ports: working-tree portfile for '{port}' differs from pinned "
-                f"baseline {baseline[:12]}; generated overlay copies the working tree, "
-                f"which may not match what manifest mode would otherwise build."
-            )
-
         dst_port = os.path.join(gen_dir, port)
-        shutil.copytree(src_port, dst_port)
+        _materialize_baseline_port(vcpkg_root, baseline, port, dst_port)
+        dst_portfile = os.path.join(dst_port, "portfile.cmake")
         dst_portfile = os.path.join(dst_port, "portfile.cmake")
 
         with open(dst_portfile, "r", newline="") as f:

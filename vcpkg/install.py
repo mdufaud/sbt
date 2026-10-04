@@ -56,8 +56,6 @@ sbt_vcpkg_addon_path = os.path.join(builder.build_root_path, "site_scons", "addo
 sbt_vcpkg_addon_overlay_ports_path = os.path.join(sbt_vcpkg_addon_path, "overlay-ports")
 addon_triplet_path = os.path.join(sbt_vcpkg_addon_path, "triplets")
 
-# Generated overlay ports from app.vcpkg_ports (declarative port overlays)
-vcpkg_ports_path = os.path.join(os.path.dirname(vcpkg_bin_path), "ports")
 gen_overlay_path = os.path.join(vcpkg_build_path, "gen-overlay-ports")
 
 if builder.verify_args(app) == False:
@@ -241,7 +239,6 @@ def _append_generated_overlay_ports(args):
     try:
         gen = generate_overlay_ports(
             app,
-            vcpkg_ports_path,
             gen_overlay_path,
             vcpkg_dir_path,
             _get_baseline(app),
