@@ -191,7 +191,7 @@ def _merge_manifest(dst_port: str, port: str, manifest: dict) -> None:
 def _materialize_baseline_port(vcpkg_root: str, baseline: str, port: str, dst_port: str) -> None:
     """Write the ports/<port> tree at the pinned baseline into dst_port."""
     proc = subprocess.run(
-        ["git", "-C", vcpkg_root, "ls-tree", "-r", "--name-only", baseline, "--", f"ports/{port}"],
+        ["git", "-C", vcpkg_root, "ls-tree", "-r", baseline, "--", f"ports/{port}"],
         capture_output=True,
         check=False,
     )
@@ -206,7 +206,9 @@ def _materialize_baseline_port(vcpkg_root: str, baseline: str, port: str, dst_po
         logger.error(f"vcpkg_ports: port '{port}' not found at baseline {baseline[:12]}")
         raise RuntimeError(f"vcpkg_ports: unknown port '{port}'")
     os.makedirs(dst_port)
-    for path in files:
+    for entry in files:
+        meta, path = entry.split("\t", 1)
+        mode = meta.split()[0]
         blob = subprocess.run(
             ["git", "-C", vcpkg_root, "show", f"{baseline}:{path}"],
             capture_output=True,
@@ -216,6 +218,8 @@ def _materialize_baseline_port(vcpkg_root: str, baseline: str, port: str, dst_po
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "wb") as f:
             f.write(blob.stdout)
+        if mode == "100755":
+            os.chmod(dst, 0o755)
 
 
 def generate_overlay_ports(
