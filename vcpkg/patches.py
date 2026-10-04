@@ -257,7 +257,6 @@ def generate_overlay_ports(
         dst_port = os.path.join(gen_dir, port)
         _materialize_baseline_port(vcpkg_root, baseline, port, dst_port)
         dst_portfile = os.path.join(dst_port, "portfile.cmake")
-        dst_portfile = os.path.join(dst_port, "portfile.cmake")
 
         with open(dst_portfile, "r", newline="") as f:
             text = f.read()
