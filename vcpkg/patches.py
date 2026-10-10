@@ -9,6 +9,8 @@ versioning, so the recipes must come from the commit the manifest resolves at,
 not from the working tree of the vcpkg checkout (which drifts with upstream).
 
 Per-port schema (all keys optional):
+    "compilers":      [<name>, ...]   only overlay for these compilers; other
+                                      compiler configs keep the stock port
     "patches":        [<path>, ...]   patch files (rel to addon/vcpkg/) copied
                                       beside the portfile and merged into the
                                       source-extract call's PATCHES argument.
@@ -229,10 +231,14 @@ def generate_overlay_ports(
     baseline: str,
     addon_vcpkg_path: str,
     addon_overlay_ports_path: str,
+    compiler: str | None = None,
 ) -> str | None:
     """
     Build generated overlay ports from app.vcpkg_ports, sourced from the
     baseline tree.
+
+    A port declaring "compilers": [...] only overlays for those compilers;
+    other compiler configs keep the stock port (and its binary cache ABI).
 
     Returns the gen_dir path to pass as --overlay-ports, or None when no
     ports are declared. Raises RuntimeError on misconfiguration.
@@ -245,6 +251,7 @@ def generate_overlay_ports(
         shutil.rmtree(gen_dir)
     os.makedirs(gen_dir)
 
+    generated = 0
     for port, spec in ports.items():
         # Cannot have both a manual overlay and a generated overlay for one port.
         if os.path.isdir(os.path.join(addon_overlay_ports_path, port)):
@@ -253,6 +260,11 @@ def generate_overlay_ports(
                 f"remove one. Use vcpkg_ports OR a manual overlay, not both."
             )
             raise RuntimeError(f"vcpkg_ports conflict for port '{port}'")
+
+        wanted = spec.get("compilers")
+        if wanted and compiler is not None and compiler not in wanted:
+            continue
+        generated += 1
 
         dst_port = os.path.join(gen_dir, port)
         _materialize_baseline_port(vcpkg_root, baseline, port, dst_port)
@@ -315,4 +327,4 @@ def generate_overlay_ports(
 
         logger.info(f"vcpkg_ports: generated overlay for '{port}'")
 
-    return gen_dir
+    return gen_dir if generated else None

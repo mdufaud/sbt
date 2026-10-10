@@ -244,6 +244,7 @@ def _append_generated_overlay_ports(args):
             _get_baseline(app),
             sbt_vcpkg_addon_path,
             sbt_vcpkg_addon_overlay_ports_path,
+            builder.build_compiler,
         )
     except RuntimeError:
         sys.exit(1)
