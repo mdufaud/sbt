@@ -14,6 +14,10 @@ _RUNTIME_CPPFLAGS = [
     "-O2", "-DNDEBUG", "-nostdinc++",
     "-fvisibility=hidden", "-fvisibility-inlines-hidden", "-fPIC",
     "-Wno-user-defined-literals", "-Wno-covered-switch-default", "-Wno-suggest-override",
+    # libc++abi's cxa_default_handlers reference the pre-C++23 `unexpected` handlers;
+    # consumers must NOT get this: it re-exposes std::unexpected() and clashes with
+    # the C++23 class in every TU
+    "-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS",
 ]
 
 
@@ -33,8 +37,9 @@ def _zig_lib_dir(cmd_cxx):
 def _config_defines(cmd_cxx):
     # zig's libc++ config (`_LIBCPP_*`) for the installed version. zig dumps it
     # for its STATIC build, so drop the visibility-annotation kill switch (we
-    # WANT the annotations -> exported typeinfo/__cxa_*) and add the removed
-    # `unexpected` handlers libcxxabi still references.
+    # WANT the annotations -> exported typeinfo/__cxa_*). Consumers get nothing
+    # else: re-exposing the removed `unexpected` handlers here would make
+    # std::unexpected ambiguous against the C++23 class in every TU.
     defines = []
     try:
         proc = subprocess.run(
@@ -47,7 +52,6 @@ def _config_defines(cmd_cxx):
                 defines.append(f"-D{m.group(1)}={m.group(2)}")
     except (OSError, subprocess.SubprocessError):
         pass
-    defines.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS")
     return defines
 
 
