@@ -49,6 +49,8 @@ _EXPORT_ALL_KEYS = frozenset([
 def _is_known_conf_key(key, modes):
     if key in _BASE_CONF_KEYS or key in _EXPORT_ALL_KEYS:
         return True
+    if key.startswith("cppcheck-"):
+        return True  # static-analysis conf family (scripts/run_cppcheck.py)
     k = key[len("export-"):] if key.startswith("export-") else key
     if k in _BASE_CONF_KEYS:
         return True

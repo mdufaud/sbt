@@ -3,24 +3,43 @@
 Usage: run_cppcheck.py <BUILD_PATH> <PROJECT_ROOT_PATH> [module1 module2 ...]
 
 Runs cppcheck on the specified modules (or all if none given).
-Per-module configuration is read from app.py:
-
-    "mymodule": {
-        "cppcheck-skip":       True,           # exclude module entirely
-        "cppcheck-suppresses": ["uninitvar"],   # extra --suppress=
-        "cppcheck-defines":    ["-DFOO=1"],     # extra -D
-        "cppcheck-undefines":  ["-UBAR"],       # extra -U
-        "cppcheck-includes":   ["/usr/include/python3.12"],  # extra -I
-    }
-
-Global cppcheck config (top-level app.py dict):
+Configuration is read from app.py, in two layers with the same keys — a
+top-level `cppcheck` dict for the whole project, and `cppcheck-*` keys in
+each module's conf for per-subproject overrides:
 
     cppcheck = {
-        "suppresses": [...],
-        "undefines":  [...],
-        "defines":    [...],
-        "includes":   [...],
+        "std":        "c++17",        # --std= — NO default (cppcheck picks
+                                      #   the language from file extensions
+                                      #   and its own default standard)
+        "language":   "c++",          # --language= — NO default
+        "enable":     ["warning", "style"],   # REPLACES the default check set
+        "suppresses": ["uninitvar"],  # extra --suppress=
+        "defines":    ["FOO=1"],      # extra -D ("-D" prefix optional)
+        "undefines":  ["BAR"],        # extra -U ("-U" prefix optional)
+        "includes":   ["/usr/include/python3.12"],  # extra -I
+        "args":       ["--addon=misra;misc.config"],  # raw args, verbatim
     }
+
+    "mymodule": {
+        "cppcheck-skip":       True,    # exclude module entirely
+        "cppcheck-std":        "c++23", # ...and the same keys as the global
+        "cppcheck-language":   "c++",   #     dict, prefixed with "cppcheck-"
+        "cppcheck-enable":     ["all"],
+        "cppcheck-suppresses": ["uninitvar"],
+        "cppcheck-defines":    ["FOO=1"],
+        "cppcheck-undefines":  ["BAR"],
+        "cppcheck-includes":   ["/usr/include/python3.12"],
+        "cppcheck-args":       ["--addon=threads"],
+    }
+
+Resolution, per module: built-in defaults < global `cppcheck` < module
+`cppcheck-*`. `enable` replaces the check set at each layer; the other list
+keys (suppresses/defines/undefines/includes/args) accumulate. Raw `args` land
+at the end of the command line verbatim, and cppcheck takes value flags
+(--std, --language, --platform, --template, --error-exitcode,
+--cppcheck-build-dir, -j) from their LAST occurrence — duplicates from the
+layers above are pruned, so `args` (and module keys over global ones) win
+without surprises.
 
 Output per module:
     <BUILD_PATH>/cppcheck/<module>/report.xml
@@ -57,6 +76,71 @@ _BASE_SUPPRESSES = [
     "unusedStructMember",
     "unknownMacro",
 ]
+
+_DEFAULT_ENABLE = ["warning", "style", "performance", "portability"]
+
+# Flags whose value cppcheck takes from the LAST occurrence on the command
+# line. The command is layered (defaults < global config < module config <
+# raw args) then pruned on these, so a later layer overrides without leaving
+# shadow copies behind.
+_SINGLETON_FLAGS = frozenset([
+    "--std",
+    "--language",
+    "--platform",
+    "--template",
+    "--error-exitcode",
+    "--cppcheck-build-dir",
+    "-j",
+])
+
+
+def _as_list(value) -> list:
+    """Config tolerance: accept a scalar or a list where a list is expected."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
+def _prefixed(prefix: str, value: str) -> str:
+    return value if value.startswith(prefix) else f"{prefix}{value}"
+
+
+def _flag_name(arg: str) -> str | None:
+    """Singleton flag carried by arg, or None. Matches the attached value
+    forms ('--std=c++17', '-j4') and the separate one ('--std', 'c++17')."""
+    if arg.startswith("--"):
+        name = arg.partition("=")[0]
+        return name if name in _SINGLETON_FLAGS else None
+    if arg.startswith("-j"):
+        return "-j"
+    return None
+
+
+def _flag_value_attached(arg: str) -> bool:
+    if arg.startswith("-j"):
+        return len(arg) > 2
+    return "=" in arg
+
+
+def _dedupe_singleton_flags(cmd: list[str]) -> list[str]:
+    """Keep only the last occurrence of each singleton flag (and its separate
+    value token) — cppcheck honours the last occurrence."""
+    last: dict[str, int] = {}
+    for i, arg in enumerate(cmd):
+        name = _flag_name(arg)
+        if name is not None:
+            last[name] = i
+    drop: set[int] = set()
+    for i, arg in enumerate(cmd):
+        name = _flag_name(arg)
+        if name is None or last[name] == i:
+            continue
+        drop.add(i)
+        if not _flag_value_attached(arg):
+            drop.add(i + 1)
+    return [arg for i, arg in enumerate(cmd) if i not in drop]
 
 
 def _merge_xml(output_path: str, input_paths: list[str]) -> None:
@@ -100,29 +184,51 @@ def _build_cppcheck_cmd(
     cmd = [
         "cppcheck",
         f"-j{cpu_count()}",
-        "--enable=warning,style,performance,portability",
-        "--std=c++20",
-        "--language=c++",
+    ]
+
+    enable = mod_conf.get("cppcheck-enable") or global_conf.get("enable") or _DEFAULT_ENABLE
+    cmd.append(f"--enable={','.join(_as_list(enable))}")
+
+    # No --std/--language by default: forcing c++20 misdetects modules written
+    # for another standard (or plain C). Letting cppcheck infer per file is the
+    # safe baseline; projects opt in explicitly when they know better.
+    std = mod_conf.get("cppcheck-std") or global_conf.get("std")
+    if std:
+        cmd.append(f"--std={std}")
+    language = mod_conf.get("cppcheck-language") or global_conf.get("language")
+    if language:
+        cmd.append(f"--language={language}")
+
+    cmd += [
         "--inline-suppr",
         "--quiet",
         "--error-exitcode=1",
         "--xml",
     ]
-    suppresses = _BASE_SUPPRESSES + global_conf.get("suppresses", []) + mod_conf.get("cppcheck-suppresses", [])
+
+    # raw escape hatch, verbatim — last occurrence wins for singleton flags
+    cmd += _as_list(global_conf.get("args")) + _as_list(mod_conf.get("cppcheck-args"))
+
+    suppresses = _BASE_SUPPRESSES + \
+        _as_list(global_conf.get("suppresses")) + \
+        _as_list(mod_conf.get("cppcheck-suppresses"))
     for s in suppresses:
         cmd.append(f"--suppress={s}")
-    undefines = [u.lstrip("-U") for u in global_conf.get("undefines", [])] + \
-                [u.lstrip("-U") for u in mod_conf.get("cppcheck-undefines", [])]
+    undefines = _as_list(global_conf.get("undefines")) + \
+        _as_list(mod_conf.get("cppcheck-undefines"))
     for u in undefines:
-        cmd.append(f"-U{u}")
-    defines = global_conf.get("defines", []) + mod_conf.get("cppcheck-defines", [])
+        cmd.append(_prefixed("-U", u.removeprefix("-U")))
+    defines = _as_list(global_conf.get("defines")) + \
+        _as_list(mod_conf.get("cppcheck-defines"))
     for d in defines:
-        cmd.append(d if d.startswith("-D") else f"-D{d}")
+        cmd.append(_prefixed("-D", d))
     cmd.append(f"-I{inc_dir}")
-    for inc in global_conf.get("includes", []) + mod_conf.get("cppcheck-includes", []):
-        cmd.append(f"-I{inc}")
+    includes = _as_list(global_conf.get("includes")) + \
+        _as_list(mod_conf.get("cppcheck-includes"))
+    for inc in includes:
+        cmd.append(_prefixed("-I", inc))
     cmd.append(src_dir)
-    return cmd
+    return _dedupe_singleton_flags(cmd)
 
 
 def _sbt_includes() -> list[str]:
@@ -176,8 +282,8 @@ def run_module(
     sbt_sup = _sbt_include_suppresses()
     merged_global = {
         **global_conf,
-        "includes": global_conf.get("includes", []) + sbt_incs,
-        "suppresses": global_conf.get("suppresses", []) + sbt_sup,
+        "includes": _as_list(global_conf.get("includes")) + sbt_incs,
+        "suppresses": _as_list(global_conf.get("suppresses")) + sbt_sup,
     }
     cmd = _build_cppcheck_cmd(src_dir, inc_dir, merged_global, mod_conf)
     with open(xml_out, "w") as xml_f, open(txt_out, "w") as txt_f:

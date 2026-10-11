@@ -535,7 +535,32 @@ make cppcheck m=util,core      # Analyse specific modules
 make cppcheck util             # Short form (positional arg)
 ```
 
-Requires `cppcheck` (install via package manager). Checks are run with `--std=c++20`, `--enable=warning,style,performance,portability`, and `--error-exitcode=1`. `unusedFunction` and `missingInclude` warnings are suppressed by default.
+Requires `cppcheck` (install via package manager). Default checks: `--enable=warning,style,performance,portability`, `--inline-suppr`, `--error-exitcode=1`. No C/C++ standard or language is forced — cppcheck picks the language from file extensions and its own default standard, so modules written for older standards (or plain C) are analysed correctly.
+
+Configuration lives in `app.py`, in two layers with the same keys: a top-level `cppcheck` dict for the whole project, and `cppcheck-*` keys in a module's conf for per-subproject overrides. Module keys win over global ones; `enable` replaces the check set at each layer, list keys accumulate, and raw `args` are appended last so they can override anything (cppcheck keeps the last occurrence of value flags like `--std`, `--language`, `--platform`, `--error-exitcode`, `-j`).
+
+```python
+cppcheck = {
+    "std":        "c++17",     # --std= (none by default)
+    "language":   "c++",       # --language= (none by default)
+    "enable":     ["all"],     # replaces the default check set
+    "suppresses": ["uninitvar"],
+    "defines":    ["FOO=1"],   # -D prefix optional
+    "undefines":  ["BAR"],     # -U prefix optional
+    "includes":   ["/usr/include/python3.12"],
+    "args":       ["--addon=misra;misc.config"],  # verbatim, final override
+}
+
+modules = {
+    "my-module": {
+        "cppcheck-std": "c++23",          # per-module override of "std"
+        "cppcheck-suppresses": ["unusedFunction"],
+        "cppcheck-skip": False,           # True excludes the module entirely
+    },
+}
+```
+
+`unusedFunction` and `missingInclude` warnings are suppressed by default. Reports land in `<build_path>/cppcheck/<module>/` (`report.xml`, `stdout.txt`, `html/` when `cppcheck-htmlreport` is installed) plus a merged errors-only `<build_path>/cppcheck/errors.xml`.
 
 ### Testing
 
