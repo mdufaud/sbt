@@ -50,6 +50,26 @@ SBT_CLI := $(SBT_PATH)/scripts/cli_helper.py
 # the environment (`env $(MAKEOVERRIDES)`), not argv.
 BUILD_ENTRY_PATH := $(PROJECT_ROOT_PATH)/build
 MAKEVARS_PATH := $(BUILD_ENTRY_PATH)/makevars.mk
+
+# Build lock: concurrent runs on one project tree share .sconsign.dblite,
+# build/last and makevars.mk. Mutating goals wait here (SBT_LOCK_TIMEOUT
+# seconds, 0 disables) before touching any of them; read-only goals never
+# wait. The lock lives until this make exits, sub-makes and scons inherit it
+# through SBT_LOCK_HELD.
+SBT_LOCK_TIMEOUT ?= 7200
+SBT_LOCK_PATH := $(BUILD_ENTRY_PATH)/.sbt.lock
+SBT_LOCK_FREE_GOALS := help info conf dump jdump path targets
+ifneq ($(SBT_LOCK_TIMEOUT),0)
+ifneq ($(SBT_LOCK_HELD),$(SBT_LOCK_PATH))
+ifneq ($(or $(if $(MAKECMDGOALS),,x),$(filter-out $(SBT_LOCK_FREE_GOALS),$(MAKECMDGOALS))),)
+ifneq ($(shell mkdir -p $(BUILD_ENTRY_PATH) && $(PYTHON_BIN) $(SBT_PATH)/scripts/build_lock.py acquire $(SBT_LOCK_PATH) $(SBT_LOCK_TIMEOUT) $$PPID >&2; echo $$?),0)
+$(error "Makefile: build lock $(SBT_LOCK_PATH) not acquired within $(SBT_LOCK_TIMEOUT)s (SBT_LOCK_TIMEOUT=0 disables the lock)")
+endif
+export SBT_LOCK_HELD := $(SBT_LOCK_PATH)
+endif
+endif
+endif
+
 # Atomic write: a crash mid-generation leaves neither a partial makevars.mk
 # nor a stale one — the cleanup removes both, and the PLATFORM check below
 # then fires with the run hint.
@@ -121,7 +141,7 @@ SCONS_BUILD_CMD = $(SCONS_PREFIX) scons -Q -j$(j) $(SCONS_ARGS)
 # (j -> scons -j flag, repeat -> gtest env, SCONS_*/DEBUGGER*/TEST_RUNNER ->
 # scons invocation, INSTALL_* -> install recipe, and any project extension
 # via SBT_EXTRA_OPTS): they are never forwarded.
-SBT_LOCAL_VARS := j repeat SCONS_ARGS SCONS_PREFIX DEBUGGER \
+SBT_LOCAL_VARS := j repeat SBT_LOCK_TIMEOUT SCONS_ARGS SCONS_PREFIX DEBUGGER \
 	DEBUGGER_ARGS TEST_RUNNER INSTALL_PREFIX INSTALL_DESTDIR \
 	INSTALL_NOCONFIRM INSTALL_LIBSUFFIX INSTALL_BINSUFFIX \
 	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX $(SBT_EXTRA_OPTS)
