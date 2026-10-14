@@ -112,7 +112,9 @@ print_failures()
 # summary.json: module -> exit code + report/log paths (written even on failure)
 write_summary()
 {
-    "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
+    # the test env's PYTHONHOME serves the bindings' embedded interpreter; the
+    # host python must resolve its own stdlib
+    env -u PYTHONHOME "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
         "$TEST_PATH" "$APP_NAME" $module_list > "${TEST_PATH}/summary.json"
 }
 
