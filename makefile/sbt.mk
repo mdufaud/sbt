@@ -366,6 +366,7 @@ clean:
 	rm -rf $(SHARE_PATH)
 	rm -rf $(BIN_PATH)
 	rm -rf $(TEST_PATH)
+	rm -rf $(EXPORT_PATH)
 	rm -rf $(DEMO_PATH)
 	rm -rf $(BUILD_PATH)/gradle
 	rm -rf $(BUILD_PATH)/.wine

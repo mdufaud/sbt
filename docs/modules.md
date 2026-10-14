@@ -593,7 +593,7 @@ override any engine value):
 
 1. **Engine paths**: `APP_NAME`, `PROJECT_ROOT_PATH`, `MODULES_PATH`, `BUILD_PATH`,
    `LIB_PATH`, `BIN_PATH`, `ETC_PATH`, `SHARE_PATH`, `EXTLIB_PATH`, `EXTLIB_LIB_PATH`,
-   `TEST_PATH`, `TEST_BIN_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`.
+   `TEST_PATH`, `TEST_BIN_PATH`, `EXPORT_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`.
 2. **Engine platform facts**: `SBT_PLATFORM`, `SBT_MACHINE`, `SBT_LIBC`, `SBT_MODE`,
    `SBT_COMPILER`, `SBT_TRIPLET`, `SBT_LIBS_TYPE`, `SBT_CROSS` (`1`/`0`) — what the test
    process would otherwise have to guess from `uname`.

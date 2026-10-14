@@ -509,6 +509,7 @@ build_hdr_path = join(build_path, "include")
 build_etc_path = join(build_path, "etc")
 build_share_path = join(build_path, "share")
 build_test_path = join(build_path, "test")
+build_export_path = join(build_path, "export")
 build_demo_path = join(build_path, "demo")
 build_obj_path = join(build_path, "obj")
 

@@ -429,14 +429,6 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
             exported_test_cpppaths.append(
                 os_path.join(builder.build_modules_path, dep_modname, include_path)
             )
-        for resource_path in ctx.state.exported_test_resources.get(dep_modname, []):
-            resource_src = os_path.join(builder.build_modules_path, dep_modname, resource_path)
-            resource_dst = os_path.join("test", "resources", dep_modname)
-            if os_path.isfile(resource_src):
-                resource_dst = os_path.join(resource_dst, os_path.basename(resource_path))
-            scons_utils.install_module_res_into_build(
-                test_env, dep_modname, resource_path, resource_dst, must_exist=False
-            )
     scons_utils.prepend_unique_paths(test_env, "CPPPATH", exported_test_cpppaths)
 
     scons_utils.add_env_app_conf(ctx.app, test_env, "test")
@@ -607,14 +599,13 @@ def _export_test(self, includes, resources, ctx):
         for path in normalized:
             if path not in store:
                 store.append(path)
-    if resources:
-        normalized = [
-            scons_utils.normalize_module_relative_path(module_name, p) for p in resources
-        ]
-        store = ctx.state.exported_test_resources.setdefault(module_name, [])
-        for path in normalized:
-            if path not in store:
-                store.append(path)
+    if resources and builder.build_tests:
+        for path in resources:
+            path = scons_utils.normalize_module_relative_path(module_name, path)
+            dst = os_path.relpath(
+                os_path.join(builder.build_export_path, module_name, path), builder.build_path
+            )
+            scons_utils.install_module_res_into_build(self, module_name, path, dst)
 
 
 def _copy_into_build(self, src, dst, ctx):

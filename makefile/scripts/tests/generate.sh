@@ -37,6 +37,7 @@ ex("EXTLIB_PATH", b + "/" + p["extlib"])
 ex("EXTLIB_LIB_PATH", b + "/" + p["extlib_lib"])
 ex("TEST_PATH", b + "/" + p["test"])
 ex("TEST_BIN_PATH", b + "/" + p["test_bin"])
+ex("EXPORT_PATH", b + "/" + p["export"])
 ex("TEST_RUNNER", d["test"]["runner"])
 ex("TEST_BIN_EXT", d["test"]["bin_ext"])
 # platform facts — exported before the app/addon env below so it can override
