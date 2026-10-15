@@ -203,8 +203,8 @@ tar xf filc-0.681-linux-x86_64.tar.xz
 cd filc-0.681-linux-x86_64 && ./setup.sh   # needs patchelf
 
 export FILC_PATH=~/apt/filc/filc-0.681-linux-x86_64
-make m=util test=1 compiler=filc
-make itest m=util compiler=filc
+make m=base test=1 compiler=filc
+make itest m=base compiler=filc
 ```
 
 Newer releases: [github.com/pizlonator/fil-c/releases](https://github.com/pizlonator/fil-c/releases).
@@ -305,7 +305,7 @@ SBT's custom emscripten triplet handles this.
 In cross-compilation, vcpkg libs are often static (`.a`). When linking a shared library (`.so`) against a `.a`, **all transitive deps must be explicit**. See the canonical [libzip example in dependencies.md](dependencies.md#the-transitive-dependency-problem).
 
 ```python
-"http": {
+"client": {
     "extlibs": ['libwebsockets', 'curl', 'zlib', 'libuv'],
     # Linux: all transitive deps for static linking
     "linux-libs": ["websockets", "curl", "z", "uv", "cap", "ssl", "crypto"],
@@ -356,7 +356,7 @@ test — under that same emulator ([builder.py:generate_runner()](../core/builde
 ```bash
 build/last/runner.sh build/last/bin/toto.exe   # windows build -> wine
 cd build/last && ./runner.sh bin/toto.exe      # the binary path is exec'd as passed
-build/last/runner.sh "$PWD/build/last/test/bin/myapp_util"  # what execute_tests.sh runs on cross
+build/last/runner.sh "$PWD/build/last/test/bin/myapp_base"  # what execute_tests.sh runs on cross
 ```
 
 The runner is computed in [builder.py:get_test_runner()](../core/builder.py) and threaded through
@@ -371,13 +371,13 @@ The runner is computed in [builder.py:get_test_runner()](../core/builder.py) and
 
 ```bash
 # qemu-user — static-musl is the simplest cross config (self-contained, no sysroot)
-make dep  m=util machine=arm64 libc=musl static=1
-make itest m=util machine=arm64 libc=musl static=1     # runs under qemu-aarch64
-make itest util ls machine=arm64 libc=musl static=1    # list tests (also via runner)
+make dep  m=base machine=arm64 libc=musl static=1
+make itest m=base machine=arm64 libc=musl static=1     # runs under qemu-aarch64
+make itest base ls machine=arm64 libc=musl static=1    # list tests (also via runner)
 
 # wine
-make dep  m=util platform=windows
-make itest m=util platform=windows                     # runs under wine
+make dep  m=base platform=windows
+make itest m=base platform=windows                     # runs under wine
 ```
 
 Rules when a runner is active:
@@ -401,9 +401,8 @@ Install emulators: `make dep` advertises them
 ### qemu-user: binfmt_misc required for tests that spawn child processes
 
 `qemu-<arch> ./test_bin` runs a foreign ELF directly — no setup. But a test that **spawns a
-child process** (`Process` / `proc::execute` → `posix_spawn` → the child `execve`s another guest
-ELF, e.g. the `myapp_sys_test_helper` used by `TestProcess.test_process_exec_timeout` and
-`TestSharedMemory`) needs `binfmt_misc` registered for that arch. Otherwise the host kernel can't
+child process** (`posix_spawn` → the child `execve`s another guest ELF, e.g. a process test's
+`myapp_base_test_helper` helper binary) needs `binfmt_misc` registered for that arch. Otherwise the host kernel can't
 launch a guest-arch child from inside the qemu process and the `execve` returns
 `errno 8 (ENOEXEC)`; the spawn child exits 127 and the test fails. This is an **environment**
 requirement, not a code issue — the test binary itself runs fine.
@@ -449,13 +448,13 @@ make dep platform=windows
 make machine=aarch64
 make libc=musl
 make platform=windows
-make compiler=em m=util,core
-make platform=android m=imgui static=1 demo=1
+make compiler=em m=base,app
+make platform=android m=gui static=1 demo=1
 
 # Test — native runs directly, cross targets run under wine/qemu automatically
-make itest m=util                                      # native
-make itest m=util machine=arm64 libc=musl static=1     # qemu-aarch64
-make itest m=util platform=windows                     # wine
+make itest m=base                                      # native
+make itest m=base machine=arm64 libc=musl static=1     # qemu-aarch64
+make itest m=base platform=windows                     # wine
 
 # Serve WASM demo
 make serve_demo

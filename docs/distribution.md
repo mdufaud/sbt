@@ -84,7 +84,7 @@ make dist mod <modules> <type>
 
 ```bash
 make dist tar
-make dist tar m=core,util
+make dist tar m=app,base
 ```
 
 Produces `dist/<name>-<version>.tar.gz` containing `include/`, `lib/`, `bin/`, `etc/`, `share/`. Extlib headers/libs/bins are merged into the corresponding top-level directories.
@@ -93,7 +93,7 @@ Produces `dist/<name>-<version>.tar.gz` containing `include/`, `lib/`, `bin/`, `
 
 ```bash
 make dist apt
-make dist apt m=core,util
+make dist apt m=app,base
 ```
 
 Requires: `dpkg-deb`, `fakeroot` (warning if missing — files will have wrong ownership).
@@ -118,7 +118,7 @@ Unmapped extlibs are listed in a warning and omitted from the generated package 
 
 ```bash
 make dist pacman
-make dist pacman m=core,util
+make dist pacman m=app,base
 ```
 
 Does **not** call `makepkg` — generates a ready-to-use `PKGBUILD` in `dist/pacman/<name>-<version>/`. Run `makepkg` manually from that directory.
@@ -128,7 +128,7 @@ cd dist/pacman/<name>-<version>
 makepkg -si
 ```
 
-The `PKGBUILD` embeds the current build options (`platform`, `compiler`, `machine`, `libc`, `mode`) so the package is reproducible. Additional env vars (`py=`, `lua=`, `x11=`, etc.) are auto-deduced from the module configuration. Package dependencies are resolved via `app.pacman_packages`.
+The `PKGBUILD` embeds the current build options (`platform`, `compiler`, `machine`, `libc`, `mode`) so the package is reproducible. Additional env vars (`script=`, `gui=`, `x11=`, etc.) are auto-deduced from the module configuration. Package dependencies are resolved via `app.pacman_packages`.
 
 Unmapped extlibs are listed in a warning and omitted from `depends`; map each runtime dependency in `pacman_packages`.
 
@@ -155,7 +155,7 @@ The Dockerfile is **multi-stage**:
 Images and package managers are configurable in `app.py` (`docker_builder_image`, `docker_runtime_image`, `docker_builder_pkg_manager`, `docker_runtime_pkg_manager` — pkg managers are auto-detected from the image name otherwise) or overridden on the command line (`docker_builder_image=... docker_runtime_image=... docker_build_local=1`).
 
 Like the `PKGBUILD`, the `make dep` / `make` lines embed the conditional env options
-(`py=`, `lua=`, `x11=`, `wayland=`, ...) auto-deduced from the module configuration, so
+(`script=`, `gui=`, `x11=`, `wayland=`, ...) auto-deduced from the module configuration, so
 the generated image builds the same feature set as the command that generated it. Note
 that system packages for those features are only included when the module/package
 mapping knows them — unmapped ones (e.g. x11/wayland display libs) are provided by
@@ -185,7 +185,7 @@ priority    = "optional"                # optional, apt only, default: optional
 multi_architecture = "same"             # optional, apt only
 
 # Optional: hardcode extra make vars in PKGBUILD build()
-additional_build_env = ["py", "lua"]    # if absent, auto-deduced from module configs
+additional_build_env = ["script", "gui"]    # if absent, auto-deduced from module configs
 
 # Package manager → system package name mapping
 apt_packages    = {"libfmt": "libfmt-dev", ...}

@@ -94,7 +94,6 @@ if _with_sys_pkg:
         logger.warning("with-system-packages: app has no '{}' configuration".format(_pkg_conf_name))
     else:
         skip_libs.extend(_pkg_conf.keys())
-app.extlibs_skip = skip_libs
 
 extlibs = {}
 build_modules = {}

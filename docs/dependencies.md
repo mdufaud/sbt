@@ -32,11 +32,11 @@ extlibs = {
 
 ```python
 modules = {
-    "net": {
+    "io": {
         "extlibs": ['openssl'],
         "libs": ['ssl', 'crypto'],
     },
-    "http": {
+    "client": {
         "extlibs": ['libwebsockets', 'curl'],
         "linux-libs": ['websockets', 'curl'],
         "windows-libs": ['websockets_static', 'curl'],
@@ -52,7 +52,7 @@ modules = {
 ### Platform-specific extlibs
 
 ```python
-"sys": {
+"base": {
     "linux-extlibs": ['libuuid'],
     "android-extlibs": ['libuuid'],
     # libuuid not needed on windows (rpcrt4 provides UUID)
@@ -141,7 +141,7 @@ Installed only when `test=1` or `demo=1` is passed to `make dep`.
 
 ```bash
 make dep                       # Install for current build config
-make dep m=util,core           # Only deps needed by util, core
+make dep m=base,app            # Only deps needed by base, app
 make dep test=1                # Include test deps (gtest)
 make dep demo=1                # Include demo deps (cli11)
 make dep test=1 demo=1         # Both
@@ -157,8 +157,8 @@ licenses. The JSON report contains both port-to-license and license-to-ports map
 make dep machine=aarch64              # aarch64 linux
 make dep libc=musl                    # musl libc
 make dep platform=windows             # windows via mingw
-make dep compiler=em m=util,core      # emscripten
-make dep platform=android m=imgui     # android NDK
+make dep compiler=em m=base,app       # emscripten
+make dep platform=android m=gui       # android NDK
 ```
 
 Each target has its own vcpkg triplet and installed packages in a separate build directory.
@@ -168,6 +168,9 @@ Each target has its own vcpkg triplet and installed packages in a separate build
 ```bash
 make dep list                  # List installed packages
 make dep tree                  # Dependency tree
+make dep search <name>         # Search for a package
+make dep update                # Update vcpkg itself
+make dep install <name>        # Install a package manually
 make dep licenses              # Write an SPDX license report
 ```
 
@@ -256,7 +259,7 @@ Example: `libzip.a` depends on `libz.a`, `libbz2.a`, etc.
 - **Cross**: must list them manually
 
 ```python
-"zip": {
+"archive": {
     "extlibs": ['libzip'],
     "libs": ['zip'],
     # Native: pkg-config resolves these automatically, but needed because libzip.a is static
@@ -269,7 +272,7 @@ Example: `libzip.a` depends on `libz.a`, `libbz2.a`, etc.
 ### variant keys for link differences
 
 ```python
-"usb": {
+"device": {
     "extlibs": ['libusb'],
     # native: udev is a system dep, parse-configs gives us libusb flags
     "native-libs": ['udev'],

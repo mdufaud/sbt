@@ -63,7 +63,7 @@ Pin every such var explicitly in `args` so it overrides the leaked value:
 ```python
 "args": {
     "mode":    "release",
-    "modules": "util",     # build the dep's own module, not your filter
+    "modules": "base",     # build the dep's own module, not your filter
     "test":    "0",        # don't build the dep's tests as a side effect
 }
 ```
@@ -110,7 +110,7 @@ Your modules can then link against them via the standard `libs` key:
 ```python
 modules = {
     "myapp": {
-        "depends": ["util"],
+        "depends": ["base"],
         "libs": ["project_module1", "project_module2"],   # from the installed dep
     }
 }
@@ -140,8 +140,8 @@ line**, in the right order. Two things to get right:
    libs in `--start-group`. List a library *before* the libraries it needs:
 
    ```python
-   # myapp's util uses myapp::json, which uses simdjson:
-   "libs": ['myapp_util', 'myapp_json', 'simdjson', 'qrencode', 'zstd', 'fmt'],
+   # myapp's base uses myapp::data, which uses simdjson:
+   "libs": ['myapp_base', 'myapp_data', 'simdjson', 'qrencode', 'zstd', 'fmt'],
    "export-all-libs": True,
    ```
 

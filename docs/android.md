@@ -95,13 +95,13 @@ These are the versions known to work together:
 ### Install dependencies (vcpkg)
 
 ```bash
-make dep m=imgui demo=1 platform=android machine=arm64 static=1
+make dep m=gui demo=1 platform=android machine=arm64 static=1
 ```
 
 ### Build APK
 
 ```bash
-make m=imgui platform=android machine=arm64 static=1 demo=1
+make m=gui platform=android machine=arm64 static=1 demo=1
 ```
 
 Output: `build/arm64-android-bionic/ndk-28/fast/demo/<name>.apk`
@@ -116,15 +116,15 @@ Output: `build/arm64-android-bionic/ndk-28/fast/demo/<name>.apk`
 | `x86` | x86 | Legacy emulator |
 
 ```bash
-make m=imgui platform=android machine=arm32 static=1 demo=1
+make m=gui platform=android machine=arm32 static=1 demo=1
 ```
 
 ### Install on device
 
 ```bash
-adb install build/arm64-android-bionic/ndk-28/fast/demo/imgui_opengl3_android_demo.apk
+adb install build/arm64-android-bionic/ndk-28/fast/demo/gui_opengl3_android_demo.apk
 # or via build/last symlink:
-adb install build/last/demo/imgui_opengl3_android_demo.apk
+adb install build/last/demo/gui_opengl3_android_demo.apk
 ```
 
 ## Running in an emulator
@@ -173,8 +173,8 @@ make adb <path/to/apk>    # install+launch+logcat on an already-running device/e
 Typical run-only flow (assumes the APK is already built):
 
 ```bash
-make demo m=sys platform=android   # build -> build/.../demo/sys_demo.apk
-make android-emu-run build/arm64-android-bionic/ndk-28/fast/dynamic/demo/sys_demo.apk
+make demo m=app platform=android   # build -> build/.../demo/app_demo.apk
+make android-emu-run build/arm64-android-bionic/ndk-28/fast/dynamic/demo/app_demo.apk
 ```
 
 `android-emu-run` takes an **explicit APK path**, so it works for any APK whether it
@@ -242,10 +242,10 @@ or as separate shared `.so` follows the global liblink (`static=1`):
 
 ```bash
 # static (single .so) — existing default
-make m=imgui platform=android machine=arm64 static=1 demo=1
+make m=gui platform=android machine=arm64 static=1 demo=1
 
 # shared (one .so per module, bundled)
-make m=imgui platform=android machine=arm64 demo=1
+make m=gui platform=android machine=arm64 demo=1
 ```
 
 **C++ runtime:** Android has no system `libstdc++`, so in a shared build every
@@ -260,7 +260,7 @@ change and off by default.
 **Module selection:** a module that cannot link shared is dropped from shared
 Android builds via `allow-link-shared` / `android-allow-link-shared` (see
 [modules.md](modules.md)). `android-allow-link-shared: False` keeps a module in
-**static** Android builds only (e.g. an imgui module that relies on shared-only
+**static** Android builds only (e.g. a gui module that relies on shared-only
 system GL libs on desktop but links fine statically on Android).
 
 ### Build-type mapping
@@ -278,7 +278,7 @@ android_release_modes = ["release"]            # mode=release -> assembleRelease
 ```
 
 ```bash
-make m=imgui platform=android machine=arm64 static=1 mode=release demo=1
+make m=gui platform=android machine=arm64 static=1 mode=release demo=1
 ```
 
 The release build type sets `ndk { debugSymbolLevel = 'NONE' }` and the
@@ -366,14 +366,14 @@ mymodule/android/
         └── MainActivity.kt       # Custom Activity
 ```
 
-### Example: imgui override
+### Example: gui override
 
 ```
 mymodule/android/
-├── config.py                     # namespace="com.example.imgui", native_activity=True
+├── config.py                     # namespace="com.example.gui", native_activity=True
 └── app/src/main/
     ├── AndroidManifest.xml       # NativeActivity with configChanges
-    └── java/com/example/imgui/
+    └── java/com/example/gui/
         └── MainActivity.kt       # NativeActivity + keyboard/unicode JNI
 ```
 

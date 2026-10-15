@@ -35,9 +35,9 @@ Both copy `genesis_fs/` into `<project_path>` (a starter `app.py`, `Makefile`, `
 cd <project_path>
 make dep                      # install external dependencies via vcpkg
 make                          # build all modules
-make m=util,core              # build specific modules
+make m=base,app               # build specific modules
 make test=1                   # build + compile tests
-make test m=core               # build + run tests
+make test m=app                # build + run tests
 ```
 
 ## Documentation

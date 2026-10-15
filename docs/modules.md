@@ -43,7 +43,7 @@ A module depending on others:
 ```python
 modules = {
     "mymodule": {
-        "depends": ['util', 'core'],
+        "depends": ['base', 'io'],
         "libs": ['pthread'],
     },
 }
@@ -77,7 +77,7 @@ SBT auto-fills missing keys (`depends`, `libs`, `link`, `flags`) as empty lists.
 Both are **skipped in cross-compilation** to avoid host header pollution. In cross builds, headers/libs come from vcpkg's `extlib/` directory instead.
 
 ```python
-"usb": {
+"device": {
     "parse-configs": ["pkg-config libusb-1.0 --cflags --libs"],
     # ^ only runs on native builds
     "cross-libs": ['usb-1.0'],
@@ -93,7 +93,7 @@ Both are **skipped in cross-compilation** to avoid host header pollution. In cro
 | `exclude-platforms` | `list[str]` | Drop the module when any build selector matches (for example `web`, `static`, `mode-release`, `gcc`, or `arm64`). |
 
 ```python
-"bt": {
+"bluetooth": {
     "allow-platforms": ["linux"],  # bluetooth only on linux
 },
 ```
@@ -108,7 +108,7 @@ Both are **skipped in cross-compilation** to avoid host header pollution. In cro
 | `<platform>-allow-link-static` | `bool` | Platform-specific override of `allow-link-static`. |
 
 ```python
-"imgui": {
+"gui": {
     # GUI pulls system-only dynamic libs (libGL/libGLEW) with no static
     # archive + dlopen GL loader: cannot link fully static
     "allow-link-shared": True,
@@ -122,7 +122,7 @@ Both are **skipped in cross-compilation** to avoid host header pollution. In cro
 | `env` | `dict[str, any]` | Default values for CLI/env variables |
 
 ```python
-"sys": {
+"ui": {
     "env": {
         "x11": 0,      # default off, enable with x11=1
         "wayland": 0,   # default off, enable with wayland=1
@@ -212,8 +212,8 @@ Modes are project-defined (`app.modes`) and always `mode-` prefixed. SBT generat
 ### Example: full module
 
 ```python
-"http": {
-    "depends": ['net'],
+"client": {
+    "depends": ['io'],
     "extlibs": ['libwebsockets', 'curl', 'zlib', 'libuv'],
     "linux-extlibs": ["libcap"],
     "linux-libs": ["websockets", "curl", "z", "uv", "cap", "ssl", "crypto"],
@@ -276,8 +276,8 @@ The public SBT API is the same for GCC and Clang. The backend is selected automa
 
 | Method | Returns |
 |--------|---------|
-| `env.module_name()` | Module name: `"core"` |
-| `env.module_format_name()` | Formatted lib name: `"project_core"` |
+| `env.module_name()` | Module name: `"app"` |
+| `env.module_format_name()` | Formatted lib name: `"project_app"` |
 | `env.module_conf()` | Module config dict from app.py |
 | `env.module_dir()` | Absolute path to module directory |
 | `env.modules_to_build()` | List of all modules being built |
@@ -418,12 +418,12 @@ not run.
 This is what lets you compile a module purely so an adaptive module can bind it:
 
 ```bash
-make test m=lua                # build lua (lean), run lua's tests
-make test m=lua fmod=http      # ALSO build http so lua binds it - but do NOT run http's tests
-make test m=lua fmod=all       # build everything, still only run lua's tests
+make test m=script              # build script (lean), run script's tests
+make test m=script fmod=client  # ALSO build client so script binds it - but do NOT run client's tests
+make test m=script fmod=all     # build everything, still only run script's tests
 ```
 
-Without `fmod`, `make test m=lua,http` would run http's entire test suite too.
+Without `fmod`, `make test m=script,client` would run client's entire test suite too.
 
 ## Conditional modules
 
@@ -435,10 +435,10 @@ Modules that are only built when explicitly requested.
 ```python
 # app.py
 conditional_modules = {
-    "lua": {
-        "conditional-env": "lua",           # activated by lua=1
-        "depends": ['util', 'sys'],
-        "conditional-depends": ['core'],    # depends on core only if core is being built
+    "script": {
+        "conditional-env": "script",        # activated by script=1
+        "depends": ['base', 'io'],
+        "conditional-depends": ['app'],     # depends on app only if app is being built
         "extlibs": ['lua', 'luabridge3'],
         "libs": ["lua"],
     },
@@ -454,13 +454,17 @@ conditional_modules = {
 
 ```bash
 # Via env var
-make lua=1
+make script=1
 
 # Via explicit module selection (also works)
-make m=lua
+make m=script
 ```
 
-When built via `m=lua`, the module's full dependency tree (`util`, `sys`) is resolved automatically.
+When built via `m=script`, the module's full dependency tree (`base`, `io`) is resolved automatically.
+
+Dependencies are resolved recursively: if `client` depends on `io` which depends on `base`,
+`make m=client` builds `base`, `io`, `client` in dependency order. Modules are sorted by
+dependency depth and built in order.
 
 ## Build output
 
@@ -485,7 +489,7 @@ build/<machine>-<platform>-<libc>/<compiler>-<version>/<mode>/<static|dynamic>/
 
 ```bash
 make                           # Build all modules
-make m=util,core               # Build specific modules
+make m=base,app                # Build specific modules
 make test=1                    # Build + compile tests
 make demo=1                    # Build demos
 make mode=debug                # Debug build
@@ -576,7 +580,7 @@ Primary sanitizers (asan, tsan, msan, hwasan, lsan) are **mutually exclusive** â
 
 ```bash
 make coverage=1                # Build with --coverage instrumentation
-make covtest m=util            # Build + run tests + emit coverage.xml (Cobertura) + coverage.html
+make covtest m=base            # Build + run tests + emit coverage.xml (Cobertura) + coverage.html
 ```
 
 Requires `gcovr` (`pip install gcovr`). Output files are written to `<build_path>/coverage/coverage.xml` and `<build_path>/coverage/index.html`.
@@ -585,8 +589,8 @@ Requires `gcovr` (`pip install gcovr`). Output files are written to `<build_path
 
 ```bash
 make cppcheck                  # Analyse all modules
-make cppcheck m=util,core      # Analyse specific modules
-make cppcheck util             # Short form (positional arg)
+make cppcheck m=base,app       # Analyse specific modules
+make cppcheck base             # Short form (positional arg)
 ```
 
 Requires `cppcheck` (install via package manager). Default checks: `--enable=warning,style,performance,portability`, `--inline-suppr`, `--error-exitcode=1`. No C/C++ standard or language is forced â€” cppcheck picks the language from file extensions and its own default standard, so modules written for older standards (or plain C) are analysed correctly.
@@ -619,10 +623,10 @@ modules = {
 ### Testing
 
 ```bash
-make test m=core                    # Build + run tests
+make test m=app                     # Build + run tests
 make itest                          # Non-interactive tests
-make test m=lua fmod=http           # Build http too, but run ONLY lua's tests
-make test m=lua fmod=all            # Build every module, run ONLY lua's tests
+make test m=script fmod=client      # Build client too, but run ONLY script's tests
+make test m=script fmod=all         # Build every module, run ONLY script's tests
 make valtest                        # Tests with valgrind
 make lvaltest                       # Tests with valgrind leak checking
 make tracetest                      # Tests with strace
