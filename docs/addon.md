@@ -25,7 +25,7 @@ site_scons/
 site_scons/addon/
 ├── distribution.py          # Package manager metadata
 ├── makefile/
-│   └── Makefile.custom      # Extra Make targets
+│   └── addon.mk             # Extra Make targets
 └── vcpkg/
     ├── config.py            # Per-port cmake options, vcpkg flags
     ├── overlay-ports/       # Patched vcpkg ports
@@ -51,13 +51,15 @@ Paths are relative to `site_scons/`. The loader processes includes in two phases
 
 This means any variable you define in `addon/vcpkg/config.py` becomes accessible as `app.vcpkg_cflags`, `app.vcpkg_cmake_configure_options`, etc.
 
+Addon includes can also define test environment and command hooks; see [test run configuration](modules.md#what-the-tests-get-self-contained-run-environment) for profiles and supported variables.
+
 ### Via automatic discovery
 
 SBT detects addon directories automatically:
 
 - **Overlay ports**: `addon/vcpkg/overlay-ports/` is passed to vcpkg as `--overlay-ports=...`
 - **Custom triplets**: `addon/vcpkg/triplets/` is scanned for `.cmake` files and passed as `--overlay-triplets=...`
-- **Custom Makefile**: `addon/makefile/Makefile.custom` is included by the main Makefile if it exists
+- **Custom Make targets**: `addon/makefile/addon.mk` is included if it exists
 
 ## vcpkg/config.py
 
@@ -186,6 +188,7 @@ vcpkg_ports = {
         "recipe_patches": ["patches/dbus/recipe.patch"],
     },
     "libwebsockets": {
+        "compilers": ["mingw"],
         "patches": ["patches/libwebsockets/mingw-pthreads.patch"],
         "manifest": {"version-semver": "4.5.2"},
         "recipe_patches": ["patches/libwebsockets/recipe.patch"],
@@ -194,6 +197,9 @@ vcpkg_ports = {
 ```
 
 Per-port keys (all optional):
+- `compilers`: `[<compiler>, ...]` — generate this overlay only for these compilers; other
+  builds use the baseline port. Available compiler selectors include `gcc`, `clang`, `mingw`,
+  `em`, `ndk`, `zig`, and `filc`.
 - `patches`: `[<path>, ...]` — patch files (rel to `addon/vcpkg/`) copied beside the portfile
   and **merged** into the source-extract call's `PATCHES` argument (canonical vcpkg mechanism;
   works for `vcpkg_from_github/gitlab/git`, `vcpkg_extract_source_archive[_ex]`). These patch
@@ -240,12 +246,12 @@ Priority order for triplet resolution:
 4. **Addon custom** (`addon/vcpkg/triplets/`)
 5. **Dynamic** (generated from `architectures.py` for musl/zig)
 
-## makefile/Makefile.custom
+## makefile/addon.mk
 
-Extra Make targets included by the main Makefile:
+Extra Make targets included by the main Makefile when `addon/makefile/addon.mk` exists:
 
 ```makefile
-# addon/makefile/Makefile.custom
+# addon/makefile/addon.mk
 
 .PHONY: my-custom-target
 my-custom-target:

@@ -31,7 +31,7 @@ SELECTOR_TOKENS = frozenset(
 
 _NON_FLAG_CONF_KEYS = frozenset([
     "depends", "extlibs", "pkg-configs", "parse-configs",
-    "inherit-depends-libs", "inherit-depends-defines",
+    "inherit-depends-libs", "inherit-depends-defines", "inherit-depends-flags",
     "inherit-depends-links", "inherit-depends-generated-libs",
     "platforms", "env", "android-permissions",
     "conditional-env", "conditional-depends",

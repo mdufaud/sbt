@@ -118,7 +118,7 @@ gdb_test: DEBUGGER = gdb
 gdb_test: test
 gdbtest: gdb_test
 
-asan_test: ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:strict_init_order=1:detect_odr_violation=1:detect_stack_use_after_return=1:detect_container_overflow=1:alloc_dealloc_mismatch=1:dectect_invalid_pointers_pairs=2:verbosity=0:atexit=1:check_initialization_order=1"
+asan_test: ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:strict_init_order=1:detect_odr_violation=1:detect_stack_use_after_return=1:detect_container_overflow=1:alloc_dealloc_mismatch=1:detect_invalid_pointer_pairs=2:verbosity=0:atexit=1:check_initialization_order=1"
 asan_test: asan = 1
 asan_test: test
 asantest: asan_test

@@ -82,7 +82,7 @@ if verbose:
     if builder.build_demo:
         logger.debug("including demo libs")
 
-skip_libs = getattr(app, "extlibs_skip", [])
+skip_libs = list(getattr(app, "extlibs_skip", []))
 skip_libs.extend(getattr(app, f"extlibs_skip_{build_platform}", []))
 
 # with-system-packages=apt|pacman|apk|yum — skip all extlibs covered by that package manager
@@ -94,6 +94,7 @@ if _with_sys_pkg:
         logger.warning("with-system-packages: app has no '{}' configuration".format(_pkg_conf_name))
     else:
         skip_libs.extend(_pkg_conf.keys())
+app.extlibs_skip = skip_libs
 
 extlibs = {}
 build_modules = {}
@@ -400,7 +401,7 @@ def _execute_vcpkg_licenses():
     port_licenses = vcpkg_licenses.collect_licenses(
         vcpkg_installed_path,
         vcpkg_triplet,
-        sbt_vcpkg_addon_overlay_ports_path,
+        (gen_overlay_path, sbt_vcpkg_addon_overlay_ports_path),
         vcpkg_ports_path,
     )
     vcpkg_licenses.dump_licenses(port_licenses, output_path)
@@ -441,7 +442,6 @@ def _pre_install_display_foundation():
     installs them first. We skip it entirely when:
       - Not cross-building for linux
       - No resolved extlib actually needs display libs (no imgui/glfw3/sdl3)
-      - The foundation packages are already present from a previous run
     """
     if not (builder.is_cross_building() and builder.build_platform == "linux"):
         return

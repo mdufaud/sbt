@@ -69,11 +69,15 @@ def get_installed_ports(vcpkg_installed_path: str, triplet: str) -> list[str]:
 
 def get_port_license(
     port_name: str,
-    overlay_ports_path: str,
+    overlay_ports_path: str | os.PathLike | list[str] | tuple[str, ...] | None,
     vcpkg_ports_path: str,
 ) -> str:
     """Return SPDX license identifier for a port, or 'unknown'."""
-    for search_dir in (overlay_ports_path, vcpkg_ports_path):
+    if isinstance(overlay_ports_path, (str, os.PathLike)):
+        overlay_paths = (overlay_ports_path,)
+    else:
+        overlay_paths = overlay_ports_path or ()
+    for search_dir in (*overlay_paths, vcpkg_ports_path):
         if not search_dir:
             continue
         vcpkg_json = os.path.join(search_dir, port_name, "vcpkg.json")
@@ -92,7 +96,7 @@ def get_port_license(
 def collect_licenses(
     vcpkg_installed_path: str,
     triplet: str,
-    overlay_ports_path: str,
+    overlay_ports_path: str | os.PathLike | list[str] | tuple[str, ...] | None,
     vcpkg_ports_path: str,
 ) -> dict[str, str]:
     """Return mapping of port name → SPDX license for all installed ports."""
@@ -105,10 +109,6 @@ def collect_licenses(
 
 def dump_licenses(port_licenses: dict[str, str], output_path: str | None = None) -> None:
     """Print JSON report (lib_to_license + license_to_libs) and warn on copyleft libs."""
-    if not port_licenses:
-        print("(no installed ports found)")
-        return
-
     lib_to_license: dict[str, str] = dict(sorted(port_licenses.items()))
 
     license_to_libs: dict[str, list[str]] = {}

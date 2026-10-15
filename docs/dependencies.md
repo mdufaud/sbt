@@ -112,12 +112,18 @@ Applied only in cross-builds. These libs get `"default-features": false` in the 
 ## Skipping libraries per platform
 
 ```python
+extlibs_skip = ["optional-lib"]
 extlibs_skip_windows = ["libwebsockets", "libssh", "libcap"]
 extlibs_skip_web = ["openssl", "libwebsockets", "curl", "libssh"]
 extlibs_skip_android = ["dbus", "libcap", "libwebsockets", "curl"]
 ```
 
-Skipped libraries are excluded from the vcpkg manifest for that platform.
+`extlibs_skip` applies on every platform; `extlibs_skip_<platform>` adds platform-specific skips.
+Skipped libraries are excluded from the vcpkg manifest.
+
+For Linux cross-builds, SBT detects display dependencies from module link libraries. Add
+project-specific link names with `display_libs = {"custom-display-lib"}` in `app.py` so the
+X11/Wayland foundation packages are installed before dependent ports are configured.
 
 ## Test & demo dependencies
 
@@ -139,7 +145,11 @@ make dep m=util,core           # Only deps needed by util, core
 make dep test=1                # Include test deps (gtest)
 make dep demo=1                # Include demo deps (cli11)
 make dep test=1 demo=1         # Both
+make dep licenses              # Print SPDX data and write <build_path>/vcpkg/licenses.json
 ```
+
+`make dep licenses` reports licenses for installed vcpkg ports and warns about copyleft
+licenses. The JSON report contains both port-to-license and license-to-ports mappings.
 
 ### Cross-compilation
 
@@ -158,9 +168,7 @@ Each target has its own vcpkg triplet and installed packages in a separate build
 ```bash
 make dep list                  # List installed packages
 make dep tree                  # Dependency tree
-make dep search <name>         # Search for a package
-make dep update                # Update vcpkg itself
-make dep install <name>        # Install a package manually
+make dep licenses              # Write an SPDX license report
 ```
 
 ## How it works internally
@@ -304,6 +312,10 @@ make pkgdep pacman             # Arch packages
 make pkgdep yum                # RHEL/Fedora packages
 ```
 
+`make dep with-system-packages=apt` skips extlibs listed in `app.apt_packages` while
+installing vcpkg dependencies. Supported values are `apt`, `pacman`, `apk`, and `yum`;
+define the corresponding `<manager>_packages` mapping in `app.py`.
+
 ## Quick reference
 
 | Task | Command / Config |
@@ -313,6 +325,6 @@ make pkgdep yum                # RHEL/Fedora packages
 | Link the lib | `"libs": ['mylib']` in module config |
 | Platform-specific lib | `"linux-libs": ['mylib']` |
 | Add feature | `extlibs_features["mylib"] = ["feature1"]` |
-| Skip on platform | `extlibs_skip_windows = ["mylib"]` |
+| Skip globally or per platform | `extlibs_skip = ["mylib"]` / `extlibs_skip_windows = ["mylib"]` |
 | Install | `make dep` |
 | Install for cross | `make dep machine=aarch64` |

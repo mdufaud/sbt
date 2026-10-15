@@ -23,7 +23,7 @@ loader.load_env()
 def safe_symlink(src, dst):
     if not os.path.exists(src):
         return False
-    if os.path.islink(dst):
+    if os.path.islink(dst) or os.path.isfile(dst):
         os.remove(dst)
     if not os.path.exists(dst):
         logger.info(f"linking {src} -> {dst}")
@@ -78,10 +78,10 @@ def _build_gnu_triplet(machine, vendor, libc="gnu"):
         logger.warning("unknown vendor '{}' — using as-is in gnu triplet".format(vendor))
     op_system = _vendor_map.get(vendor, vendor)
     if vendor in ("linux", "android"):
-        if machine in ("armv6", "armv6l", "armv7", "armv7l"):
+        if machine in ("arm", "armv6", "armv6l", "armv7", "armv7l"):
             # Add 'eabi' for ARM architectures
             op_system += "eabi"
-        if machine in ("armv5hf", "armv7hf") and vendor == "linux":
+        if machine in ("arm", "armv5hf", "armv7hf") and vendor == "linux":
             # Add 'hf' for hard-float ABI
             op_system += "hf"
         if machine == "armv8_32" and vendor == "linux":
@@ -104,6 +104,22 @@ def get_filc_bin(name):
 ###############################################################################
 # Compiler version detection
 ###############################################################################
+
+def get_ndk_root():
+    """Get the Android NDK root path."""
+    return utils.get_opt("ANDROID_NDK_PATH", "")
+
+def _read_ndk_revision():
+    """Full NDK revision from source.properties (e.g. "28.0.13004108"), or ''."""
+    ndk_root = get_ndk_root()
+    source_props = os.path.join(ndk_root, "source.properties") if ndk_root else ""
+    if not source_props or not os.path.isfile(source_props):
+        return ""
+    with open(source_props) as f:
+        for line in f:
+            if line.startswith("Pkg.Revision"):
+                return line.partition("=")[2].strip()
+    return ""
 
 def _detect_compiler_major_version(compiler, machine=None, libc="gnu"):
     """Detect the major version of a compiler, returns empty string on failure."""
@@ -223,7 +239,7 @@ def is_msys_mingw():
 def __get_build_platform():
     platform_env = utils.get_opt("platform", "")
     build_platform = (platform_env or get_host_platform()).lower()
-    if "win" in build_platform or is_msys():
+    if build_platform.startswith("win") or is_msys():
         build_platform = "windows"
     return build_platform
 
@@ -393,12 +409,11 @@ def get_host_libc():
     """Detect the host system's libc (gnu or musl)"""
     # Try to check if the system uses musl
     try:
-        import subprocess
         # Check if ldd is using musl
         result = subprocess.run(['ldd', '--version'], capture_output=True, text=True)
         if 'musl' in result.stdout.lower() or 'musl' in result.stderr.lower():
             return "musl"
-    except:
+    except Exception:
         pass
     # Default to gnu for most systems
     return "gnu"
@@ -553,7 +568,7 @@ def get_test_bin_ext():
 def get_test_runner():
     """Emulator command that wraps a cross-built test binary, or "" when it runs natively."""
     if build_platform == "windows":
-        return "wine"
+        return "wine" if host_platform != "windows" else ""
     if build_platform == "web":
         return "node"
     if build_platform == "linux" and not host_can_run(build_machine):
@@ -614,7 +629,8 @@ def get_test_runner_env():
         if not build_static_libs:
             # ask the compiler for its sysroot; layout varies (arm-none keeps libc under <prefix>/libc)
             sysroot = probe_gcc_sysroot(build_machine, libc)
-            env.append("QEMU_LD_PREFIX=" + abspath(sysroot))
+            if sysroot:
+                env.append("QEMU_LD_PREFIX=" + abspath(sysroot))
             env.append("QEMU_SET_ENV=LD_LIBRARY_PATH=" + ":".join([build_lib_path, build_extlib_lib_path]))
     return env
 
@@ -670,22 +686,6 @@ def get_android_sdk_root():
 def get_java_home():
     """Get JAVA_HOME path."""
     return utils.get_opt("JAVA_HOME", "")
-
-def get_ndk_root():
-    """Get the Android NDK root path."""
-    return utils.get_opt("ANDROID_NDK_PATH", "")
-
-def _read_ndk_revision():
-    """Full NDK revision from source.properties (e.g. "28.0.13004108"), or ''."""
-    ndk_root = get_ndk_root()
-    source_props = os.path.join(ndk_root, "source.properties") if ndk_root else ""
-    if not source_props or not os.path.isfile(source_props):
-        return ""
-    with open(source_props) as f:
-        for line in f:
-            if line.startswith("Pkg.Revision"):
-                return line.split("=")[1].strip()
-    return ""
 
 def get_ndk_version():
     """NDK version string for Gradle's ndkVersion (e.g. "28.0.13004108"), or ''."""
@@ -883,7 +883,7 @@ def copy_dll_to_build(generated_lld_binaries):
             dll_found[key] = resolved
             queue.extend(_pe_dll_imports(resolved))
 
-    dll_found = set(dll_found.values())
+    dll_found = dll_found.values()
     expected_dll_names = {os.path.basename(dll).lower() for dll in dll_found}
 
     if has_verbose():

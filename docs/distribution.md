@@ -26,6 +26,12 @@ make install INSTALL_PREFIX=/opt/myapp
 
 # Into a staging root (e.g. for packaging scripts)
 make install INSTALL_DESTDIR=/tmp/staging INSTALL_PREFIX=/usr
+
+# Skip the confirmation prompt
+make install INSTALL_NOCONFIRM=1
+
+# Do not install vcpkg-built shared libraries alongside the app
+make install INSTALL_NO_EXTLIBS=1
 ```
 
 ### Installed layout
@@ -106,6 +112,8 @@ Layout inside the `.deb`:
 
 The `DEBIAN/control` file is generated from `app.py` fields: `name`, `version`, `description`, `maintainers`, `architecture`, and optionally `priority`, `url`, `section`, `multi_architecture`. Package dependencies are resolved from the module extlib configuration mapped via `app.apt_packages`.
 
+Unmapped extlibs are listed in a warning and omitted from the generated package dependencies; map each runtime dependency in `apt_packages`.
+
 #### `pacman` — Arch Linux package
 
 ```bash
@@ -121,6 +129,8 @@ makepkg -si
 ```
 
 The `PKGBUILD` embeds the current build options (`platform`, `compiler`, `machine`, `libc`, `mode`) so the package is reproducible. Additional env vars (`py=`, `lua=`, `x11=`, etc.) are auto-deduced from the module configuration. Package dependencies are resolved via `app.pacman_packages`.
+
+Unmapped extlibs are listed in a warning and omitted from `depends`; map each runtime dependency in `pacman_packages`.
 
 If `makepkg` is available on the host, `.SRCINFO` is generated automatically alongside the `PKGBUILD` (required for AUR submission). Otherwise a warning is printed:
 

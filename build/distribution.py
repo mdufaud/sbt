@@ -74,6 +74,8 @@ def create_apt_package(app, modules):
     try:
         modules_extlibs = sbt_modules.get_modules_extlibs(app, modules, _b.build_platform)
         dependencies, missing_dep = sbt_modules.get_modules_packages(app, "apt", modules_extlibs)
+        if missing_dep:
+            logger.warning("apt packages not found for: {}".format(", ".join(missing_dep)))
     except SystemExit as err:
         logger.error(err)
         exit(1)
@@ -140,6 +142,8 @@ def create_pacman_package(app, modules):
     try:
         modules_extlibs = sbt_modules.get_modules_extlibs(app, modules, _b.build_platform)
         dependencies, missing_dep = sbt_modules.get_modules_packages(app, "pacman", modules_extlibs)
+        if missing_dep:
+            logger.warning("pacman packages not found for: {}".format(", ".join(missing_dep)))
     except SystemExit as err:
         logger.error(err)
         exit(1)

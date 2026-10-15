@@ -20,6 +20,7 @@ fi
 
 BUILD_PATH="$1"
 PROJECT_ROOT_PATH="$2"
+MODULES_DIR="${MODULES_DIR:-$PROJECT_ROOT_PATH}"
 shift 2
 MODULES="$*"
 
@@ -33,14 +34,14 @@ mkdir -p "$COVERAGE_DIR"
 
 # If no modules given, discover all that have a scons.py
 if [ -z "$(printf '%s' "$MODULES" | tr -d ' ')" ]; then
-    MODULES=$(cd "$PROJECT_ROOT_PATH" && ls -d */scons.py 2>/dev/null | sed 's|/scons.py||' | tr '\n' ' ')
+    MODULES=$(cd "$MODULES_DIR" && ls -d */scons.py 2>/dev/null | sed 's|/scons.py||' | tr '\n' ' ')
 fi
 
 gcovr_filter=()
 gcovr_search=()
 
 for mod in $MODULES; do
-    gcovr_filter+=(--filter "$mod/src" --filter "$mod/include")
+    gcovr_filter+=(--filter "$MODULES_DIR/$mod/src" --filter "$MODULES_DIR/$mod/include")
     obj_dir="$BUILD_PATH/obj/$mod"
     [ -d "$obj_dir" ] && gcovr_search+=("$obj_dir")
 done
@@ -70,8 +71,8 @@ for mod in $MODULES; do
         --exclude    '.*/test/.*' \
         --exclude    '.*/demo/.*' \
         --exclude-unreachable-branches \
-        --filter     "$mod/src" \
-        --filter     "$mod/include" \
+        --filter     "$MODULES_DIR/$mod/src" \
+        --filter     "$MODULES_DIR/$mod/include" \
         "$obj_dir"
 done
 

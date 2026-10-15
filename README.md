@@ -55,6 +55,7 @@ make test m=core               # build + run tests
 ## Requirements
 
 - Python 3 (checked by the Makefile)
+- [GNU Make 4.2](https://lists.gnu.org/archive/html/info-gnu/2016-05/msg00013.html) or newer
 - SCons
 - A C/C++ toolchain (GCC or Clang); cross-compilation toolchains as needed per target (see [docs/cross-compilation.md](docs/cross-compilation.md))
 - vcpkg is bootstrapped automatically by `make dep`

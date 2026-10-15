@@ -259,14 +259,14 @@ def _sbt_include_suppresses() -> list[str]:
 
 def run_module(
     mod: str,
-    project_root: str,
+    modules_dir: str,
     cppcheck_dir: str,
     global_conf: dict,
     mod_conf: dict,
     have_html: bool,
 ) -> int:
-    src_dir = os.path.join(project_root, mod, "src")
-    inc_dir = os.path.join(project_root, mod, "include")
+    src_dir = os.path.join(modules_dir, mod, "src")
+    inc_dir = os.path.join(modules_dir, mod, "include")
     if not os.path.isdir(src_dir):
         return 0
 
@@ -304,7 +304,7 @@ def run_module(
         os.makedirs(html_dir, exist_ok=True)
         subprocess.run(
             ["cppcheck-htmlreport", "--title", mod,
-             "--file", xml_out, "--report-dir", html_dir, "--source-dir", project_root],
+             "--file", xml_out, "--report-dir", html_dir, "--source-dir", modules_dir],
             stderr=subprocess.DEVNULL,
         )
 
@@ -367,17 +367,19 @@ def run(
 
     try:
         app = loader.load_app()
+        modules_dir = builder.build_modules_path
         app_modules: dict = sbt_modules.get_module_merged_with_conditionals(app)
         global_cppcheck: dict = getattr(app, "cppcheck", {})
     except Exception as exc:
         logger.warning(f"could not load app.py: {exc} — running without per-module config")
+        modules_dir = project_root
         app_modules = {}
         global_cppcheck = {}
 
     if not modules:
         modules = sorted(
-            d for d in os.listdir(project_root)
-            if os.path.isfile(os.path.join(project_root, d, "scons.py"))
+            d for d in os.listdir(modules_dir)
+            if os.path.isfile(os.path.join(modules_dir, d, "scons.py"))
         )
 
     cppcheck_dir = os.path.join(build_path, "cppcheck")
@@ -391,7 +393,7 @@ def run(
         if mod_conf.get("cppcheck-skip", False):
             logger.info(f"skipping module: {mod} (cppcheck-skip)")
             continue
-        ret = run_module(mod, project_root, cppcheck_dir, global_cppcheck, mod_conf, have_html)
+        ret = run_module(mod, modules_dir, cppcheck_dir, global_cppcheck, mod_conf, have_html)
         if ret != 0:
             rc = ret
         ran.append(mod)

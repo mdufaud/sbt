@@ -90,6 +90,7 @@ Both are **skipped in cross-compilation** to avoid host header pollution. In cro
 | Key | Type | Description |
 |-----|------|-------------|
 | `allow-platforms` | `list[str]` | Whitelist of platforms (`linux`, `windows`, `web`, `android`). Omit = all platforms. |
+| `exclude-platforms` | `list[str]` | Drop the module when any build selector matches (for example `web`, `static`, `mode-release`, `gcc`, or `arm64`). |
 
 ```python
 "bt": {
@@ -103,6 +104,8 @@ Both are **skipped in cross-compilation** to avoid host header pollution. In cro
 |-----|------|-------------|
 | `allow-link-shared` | `bool` | Module dropped from static builds (`static=1`). |
 | `allow-link-static` | `bool` | Module dropped from dynamic builds. |
+| `<platform>-allow-link-shared` | `bool` | Platform-specific override of `allow-link-shared`. |
+| `<platform>-allow-link-static` | `bool` | Platform-specific override of `allow-link-static`. |
 
 ```python
 "imgui": {
@@ -145,8 +148,29 @@ These values are set in `os.environ` at load time. The module's `scons.py` reads
 | `export-<variant>-flags` | `list[str]` | Export variant-specific compiler flags such as `export-web-flags` |
 | `inherit-depends-defines` | `bool` | Inherit CPPDEFINES from dependencies |
 | `inherit-depends-links` | `bool` | Inherit LINKFLAGS from dependencies |
+| `inherit-depends-libs` | `bool` | Inherit system libraries from dependencies |
 | `inherit-depends-flags` | `bool` | Inherit CPPFLAGS from dependencies |
 | `inherit-depends-generated-libs` | `bool` | Inherit generated library names from dependencies (default: `True`) |
+
+## Project build configuration
+
+`modules_path` selects the project-relative directory containing module sources; it defaults to the project root. The loader checks that the configured directory exists.
+
+`architectures` (or `extra_machines`) can add machine entries to the built-in architecture table. The same entries can be registered by calling `architectures.register_machines({...})` from project configuration.
+
+```python
+modules_path = "src"
+
+architectures = {
+    "custom64": {
+        "gcc": {"gnu": "custom64-linux-gnu-"},
+        "vcpkg": "custom64",
+        "meson": {"cpu_family": "custom64", "cpu": "custom64", "endian": "little"},
+    },
+}
+```
+
+After a non-dry build, SBT calls optional `on_build_success(build_modules, builder)` or `on_build_fail(build_modules, builder)` hooks from `app.py`.
 
 ### Android keys
 
@@ -216,6 +240,7 @@ Modes are project-defined (`app.modes`) and always `mode-` prefixed. SBT generat
 | `env.build_demo(source, name=, libs=[], android_dir=None)` | Build demo (only if `demo=1`) |
 | `env.build_demos(sources)` | Build multiple demos (one per source file) |
 | `env.build_cpp_modules(sources, module_name=, imports=[])` | Build C++20 module interfaces and register them for later imports |
+| `env.export_test(includes=[], resources=[])` | Register include paths for dependent test builds; when `test=1`, copy resources into `EXPORT_PATH/<module>/`. |
 
 When a target imports named modules, pass them explicitly with `cpp_modules=[...]`:
 
@@ -382,7 +407,7 @@ Such a module is **adaptive**: it binds/compiles a sibling module only when that
 in the build. Its own `depends` must therefore stay minimal — anything listed in `depends` is
 *forced* into every build, which defeats the adaptation. Declare the optional siblings in
 `conditional-depends` instead: they are linked only if they are already in the build for some
-other reason (see [Module dependencies](#module-dependencies)).
+other reason.
 
 ### `m=` vs `fmod=`
 
@@ -398,7 +423,7 @@ make test m=lua fmod=http      # ALSO build http so lua binds it - but do NOT ru
 make test m=lua fmod=all       # build everything, still only run lua's tests
 ```
 
-Without `fmod`, `make test m=lua,http` would drag http's entire test suite into the run.
+Without `fmod`, `make test m=lua,http` would run http's entire test suite too.
 
 ## Conditional modules
 
@@ -437,17 +462,6 @@ make m=lua
 
 When built via `m=lua`, the module's full dependency tree (`util`, `sys`) is resolved automatically.
 
-## Module dependencies
-
-Dependencies are resolved recursively. If `http` depends on `net` which depends on `util`:
-
-```bash
-make m=http
-# → builds util, sys, net, http (in dependency order)
-```
-
-Modules are sorted by dependency depth and built in order.
-
 ## Build output
 
 ```
@@ -457,6 +471,7 @@ build/<machine>-<platform>-<libc>/<compiler>-<version>/<mode>/<static|dynamic>/
 ├── demo/          # Demo executables
 ├── include/       # Copied public headers
 ├── test/bin/      # Test binaries
+├── export/        # Test resources grouped by provider module
 ├── obj/           # Intermediate object files
 │   └── mymodule/
 ├── etc/           # Copied config files
@@ -481,6 +496,28 @@ make compiler=clang            # Use clang
 make def=MY_DEFINE=1           # Add preprocessor define
 ```
 
+#### Make targets
+
+| Target | Purpose |
+|--------|---------|
+| `info`, `conf [m=modules]` | Print active build settings or selected module configuration. |
+| `dump`, `jdump` | Print the `app.py` configuration as text or JSON. |
+| `path`, `targets` | Print the build path or list Make targets. |
+| `venv`, `setup` | Create `.venv/` or install SCons into it. |
+| `build_debug`, `build_dry` | Run SCons with diagnostics or as a dry run. |
+| `mod <module> [m=modules]` | Build the requested module and any additional modules from `m=` with their dependencies. |
+| `serve_bin`, `serve_demo` | Serve WebAssembly binaries or demos on `PORT` (default `8000`). |
+| `clean`, `clean_dep`, `clean_dist`, `clean_cache` | Remove the current build, dependencies, distribution, or cache. |
+| `cclean` | Remove current configuration outputs and the SCons cache. |
+| `clean_build` | Remove the entire `build/` tree, including all configurations and build-local dependency state. |
+| `fclean` | Remove build outputs, distributions, dependency installs, caches, and `.sconsign.dblite`. |
+| `dep licenses` | Print installed vcpkg port licenses and write the JSON report. |
+
+The `scripts/cli_helper.py` command-line helper also supports `keys`, `dump`, `compiler`,
+`platform`, `machine`, `mode`, `termux`, `path`, `modules_path`, `static`, `triplet`,
+`runner`, and `runner_env`. Its `conf`, `dump-config [--json]`, and `makevars` commands are
+used by Make to resolve configuration and paths.
+
 #### Build options reference
 
 Options are passed as `make <option>=<value>` (environment variables work too). Cross-compilation options (`machine=`, `platform=`, `libc=`, `compiler=`) are detailed in [cross-compilation.md](cross-compilation.md), `test=`/`demo=` targets in the [Testing](#testing) section below.
@@ -500,10 +537,27 @@ Options are passed as `make <option>=<value>` (environment variables work too). 
 | `cpu=` | `$CPU` | Target CPU for `-march=`/`-mcpu=` (e.g. `cortex-a72`, `x86-64-v3`). |
 | `triplet=` | auto | Override the vcpkg triplet used by `make dep`. |
 | `cross_sysroot=` | | Path to a cross sysroot; sets `PKG_CONFIG_SYSROOT_DIR` and pkg-config search paths for cross builds. |
-| `with-system-packages=1` | off | `make dep`: assume listed system packages are already installed instead of building them via vcpkg. |
+| `with-system-packages=<pm>` | off | `make dep`: skip extlibs mapped in `<pm>_packages`; supported values are `apt`, `pacman`, `apk`, and `yum`. |
 | `fgit=1` | off | `make dep`: force re-clone of git dependencies. |
+| `SBT_LOCK_TIMEOUT=seconds` | `7200` | Wait up to this many seconds for the per-project lock; `0` disables it. Read-only goals do not take the lock. |
+| `j=number` | logical cores - 1 | SCons parallel jobs. |
+| `repeat=number` | | Repeat each test the requested number of times. |
+| `brief=1` | off | Keep passing test output in logs and show failures in the console. |
+| `env=path` | `env.py` | Load the named environment module instead of the default project `env.py`. |
+| `dist=type` | | Select a distribution type (`tar`, `apt`, `pacman`, or `docker`). |
+| `pkgdep=manager` | | Select the system package manager for `make pkgdep` (or `auto`). |
 | `asan=1`, `ubsan=1`, ... | off | Sanitizers — see below. |
 | `coverage=1` | off | gcovr coverage instrumentation — see below. |
+| `docker_builder_image=...` | `debian:trixie-slim` | Docker distribution builder image. |
+| `docker_runtime_image=...` | `debian:trixie-slim` | Docker distribution runtime image. |
+| `docker_build_local=1` | off | Build the Docker image from the local project tree. |
+| `PORT=number` | `8000` | Port used by `serve_bin` and `serve_demo`. |
+| `ANDROID_API=number` | `24` | Android NDK target API level. |
+| `ANDROID_NDK_PATH=path` | | Android NDK root. |
+| `ANDROID_NDK_HOST_TAG=tag` | detected | Override the NDK prebuilt host tag. |
+| `ANDROID_SDK_PATH=path` | | Android SDK root. |
+| `JAVA_HOME=path` | | JDK root used for Android builds. |
+| `FILC_PATH=path` | | Fil-C toolchain root. |
 
 #### Sanitizers (build flags)
 
@@ -579,6 +633,7 @@ make lsantest / make ilsantest      # Tests with LSan (standalone)
 make msantest / make imsantest      # Tests with MSan (clang only)
 make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
+make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
 ```
 
 #### What the tests get (self-contained run environment)
@@ -588,12 +643,18 @@ run; `execute_tests.sh` sources it and runs each module's test binary from that 
 own source directory (so relative fixture paths resolve), with logs per module under
 `<build_path>/test/logs/<module>/`.
 
+The default test profile is `gtest`, selected with `TEST_PROFILE`; profiles live in
+`makefile/scripts/tests/profiles/`. `repeat=N` substitutes `N` into the profile's repeat
+flags, and `brief=1` enables its brief-output flags. Set `TEST_PROFILE_DIR` to use a
+different profile directory.
+
 The `.env` exports, in order (later wins — a project `app.generate_test_env` / addon can
 override any engine value):
 
-1. **Engine paths**: `APP_NAME`, `PROJECT_ROOT_PATH`, `MODULES_PATH`, `BUILD_PATH`,
+1. **Engine paths and Python**: `APP_NAME`, `PROJECT_ROOT_PATH`, `MODULES_PATH`, `BUILD_PATH`,
    `LIB_PATH`, `BIN_PATH`, `ETC_PATH`, `SHARE_PATH`, `EXTLIB_PATH`, `EXTLIB_LIB_PATH`,
-   `TEST_PATH`, `TEST_BIN_PATH`, `EXPORT_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`.
+   `TEST_PATH`, `TEST_BIN_PATH`, `EXPORT_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`, `PYTHON_BIN`
+   (the interpreter used for the test run).
 2. **Engine platform facts**: `SBT_PLATFORM`, `SBT_MACHINE`, `SBT_LIBC`, `SBT_MODE`,
    `SBT_COMPILER`, `SBT_TRIPLET`, `SBT_LIBS_TYPE`, `SBT_CROSS` (`1`/`0`) — what the test
    process would otherwise have to guess from `uname`.

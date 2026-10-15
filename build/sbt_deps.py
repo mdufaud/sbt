@@ -318,7 +318,7 @@ def _build_dep(name, dep_path, dep_config, consumer_vcpkg_path, consumer_extlib_
     # Drop the consumer make's command-line variables (carried as MAKEFLAGS/
     # MAKEOVERRIDES) so they don't leak into the dependency build and override its
     # own makefile assignments. The dep build gets only the explicit args below.
-    for make_var in ("MAKEFLAGS", "MAKEOVERRIDES", "MFLAGS"):
+    for make_var in ("MAKEFLAGS", "MAKEOVERRIDES", "MFLAGS", "env"):
         env.pop(make_var, None)
     if not use_own_vcpkg and consumer_vcpkg_path:
         # Share consumer's vcpkg installation directory via VCPKG_ROOT

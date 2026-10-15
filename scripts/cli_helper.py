@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -145,8 +146,14 @@ def _keys():
 def _dump():
     os.makedirs(builder.build_path, exist_ok=True)
     json_path = os.path.join(builder.build_path, "sbt_env.json")
-    with open(json_path, "w") as f:
-        json.dump(_build_env(), f, indent=4)
+    fd, temp_path = tempfile.mkstemp(prefix=".sbt_env.", dir=builder.build_path)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(_build_env(), f, indent=4)
+        os.replace(temp_path, json_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
     return json_path
 
 

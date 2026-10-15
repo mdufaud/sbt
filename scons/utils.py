@@ -55,8 +55,8 @@ def add_env_app_conf(app, env, *keys):
 
 def load_env_packages_config(env, *configs):
     """ Parse multiple pkg-configs: libraries/includes utilities """
-    libtype = "--static" if builder.is_static_libs else "--shared"
-    return parse_config_command(env, [
+    libtype = "--static" if builder.build_static_libs else "--shared"
+    return parse_config_command(env, *[
         "pkg-config {} --cflags --libs {}".format(config, libtype)
         for config in configs
     ])

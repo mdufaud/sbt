@@ -15,6 +15,25 @@
 | Android | `make platform=android` | NDK clang | `arm64-android` |
 | Fil-C | `make compiler=filc` | clang (Fil-C fork) | `x64-linux-musl` |
 
+### Built-in Linux machines
+
+These are the machine names accepted by `machine=` and the built-in cross toolchains. See
+[modules.md](modules.md) for using machine names as module selectors.
+
+| `machine=` | GCC prefix | Zig target | vcpkg architecture |
+|------------|------------|------------|--------------------|
+| `x86_64` | `x86_64-linux-gnu-` | `x86_64-linux-musl` | `x64` |
+| `x86` | `i686-linux-gnu-` | `i686-linux-musl` | `x86` |
+| `i386` | `i686-linux-gnu-` | `i386-linux-musl` | `x86` |
+| `arm32` | `arm-linux-gnueabihf-` | `arm-linux-musleabihf` | `arm` |
+| `arm64` | `aarch64-linux-gnu-` | `aarch64-linux-musl` | `arm64` |
+| `riscv64` | `riscv64-linux-gnu-` | `riscv64-linux-musl` | `riscv64` |
+| `riscv32` | `riscv32-linux-gnu-` | `riscv32-linux-musl` | `riscv32` |
+| `loongarch64` | `loongarch64-linux-gnu-` | `loongarch64-linux-musl` | `loongarch64` |
+| `mips64el` | `mips64el-linux-gnuabi64-` | `mips64el-linux-musl` | `mips64` |
+| `s390x` | `s390x-linux-gnu-` | `s390x-linux-musl` | `s390x` |
+| `ppc64le` | `powerpc64le-linux-gnu-` | `powerpc64le-linux-musl` | `ppc64le` |
+
 ## When is it cross-compilation?
 
 ```python
@@ -33,46 +52,9 @@ is_cross_building() = (host_machine != build_machine)
 
 ### Variant keys
 
-Any module config key can be prefixed with a selector. See [modules.md](modules.md) for the full table.
-
-```python
-"mymodule": {
-    # Base
-    "libs": ['mylib'],
-
-    # Platform
-    "linux-libs": ['pthread'],
-    "windows-libs": ['ws2_32'],
-    "android-libs": ['log'],
-
-    # Compiler / web
-    "gcc-flags": ['-Wno-specific-warning'],
-    "web-flags": ['-pthread'],
-    "web-link": ['-sUSE_PTHREADS=1'],
-    "mingw-libs": ['stdc++fs'],
-
-    # Native vs Cross
-    "native-libs": ['udev'],
-    "cross-libs": ['usb-1.0'],
-    "linux-native-libs": ['z', 'bz2', 'lzma'],
-    "linux-cross-libs": ['z', 'bz2'],
-}
-```
-
-### How variants are resolved
-
-SBT builds a list of variant selectors for the current build:
-
-```python
-# Always present:
-[platform, libtype, mode-<mode>, compiler, libc, machine]
-# e.g.: ["linux", "shared", "mode-fast", "gcc", "gnu", "x86_64"]
-
-# Plus cross/native:
-["cross", "linux-cross"]  # or ["native", "linux-native"]
-```
-
-For each selector and key (`libs`, `flags`, `c-flags`, `cxx-flags`, `link`, `bin-link`, `defines`), SBT looks up `{selector}-{key}`. Each selector's `{selector}-{libtype}` pairing is also checked (e.g., `linux-static-libs`, `mode-debug-static-flags`).
+The full variant-key table and merge order are in [modules.md](modules.md#platformcompiler-variant-keys).
+Cross builds can use `cross-*` and `<platform>-cross-*` keys; native builds can use
+`native-*` and `<platform>-native-*` keys.
 
 ### Platform-specific sources in scons.py
 
@@ -195,10 +177,16 @@ Constraints:
 
 ### Zig
 
-Single `zig cc` command for cross-compilation. Forces musl libc.
+SBT uses Zig's single `zig cc`/`zig c++` driver for native or cross builds. It forces
+`libc=musl`; `machine=` selects the target from the built-in architecture table above.
+The vcpkg triplet chains a shared Zig toolchain and uses wrapper scripts so CMake and
+Meson/autotools ports receive the same target and position-independent-code flags. Zig
+must be available on `PATH`.
 
 ```bash
+make compiler=zig                         # host machine, musl
 make compiler=zig machine=aarch64
+make compiler=zig machine=riscv64 static=1
 ```
 
 ### Fil-C
@@ -280,28 +268,8 @@ This prevents cmake (building vcpkg ports) from finding host headers.
 
 ### Per-port cmake options
 
-Strategy: **restrictive by default, permissive on native, selective on cross**.
-
-Three config levels in `addon/vcpkg/config.py`:
-
-```python
-# 1. Base: disable system-dependent features (safe for any target)
-vcpkg_cmake_configure_options = {
-    "sdl3": ["-DSDL_X11=OFF", "-DSDL_WAYLAND=OFF"],
-}
-
-# 2. Native linux: re-enable everything (system provides X11, Wayland)
-vcpkg_cmake_configure_options_linux = {
-    "sdl3": [],   # empty = remove base restrictions
-}
-
-# 3. Cross-linux: selective re-enable (X11/Wayland from vcpkg)
-vcpkg_cmake_configure_options_cross_linux = {
-    "sdl3": ["-DSDL_IBUS=OFF", "-DSDL_JACK=OFF"],
-}
-```
-
-Resolution: native applies `_linux`; cross applies base then merges with `_cross_linux`.
+Per-port CMake options use base, platform, and cross-platform keys. The full configuration
+example and merge rules are in [addon.md](addon.md#vcpkgconfigpy).
 
 ### Cross-linux 2-phase install (X11/Wayland)
 
@@ -312,10 +280,9 @@ Resolution: native applies `_linux`; cross applies base then merges with `_cross
 1. **Phase 1**: Install only X11/Wayland foundation packages (`vcpkg_cross_linux_extlibs`)
 2. **Phase 2**: Install full manifest — `FindX11` now finds headers from phase 1
 
-Phase 1 is skipped if:
-- Not cross-building for linux
-- No module needs display libs (auto-detected from module libs)
-- Foundation packages already installed (sentinel: `libX11.so` exists)
+Phase 1 runs only for a Linux cross-build whose module link libraries indicate a display
+dependency. Add project-specific library names through `display_libs` in `app.py`; see
+[dependencies.md](dependencies.md#skipping-libraries-per-platform).
 
 ### Overlay triplet
 
@@ -335,20 +302,13 @@ SBT's custom emscripten triplet handles this.
 
 ## Transitive static linking
 
-In cross-compilation, vcpkg libs are often static (`.a`). When linking a shared library (`.so`) against a `.a`, **all transitive deps must be explicit**.
+In cross-compilation, vcpkg libs are often static (`.a`). When linking a shared library (`.so`) against a `.a`, **all transitive deps must be explicit**. See the canonical [libzip example in dependencies.md](dependencies.md#the-transitive-dependency-problem).
 
 ```python
 "http": {
     "extlibs": ['libwebsockets', 'curl', 'zlib', 'libuv'],
     # Linux: all transitive deps for static linking
     "linux-libs": ["websockets", "curl", "z", "uv", "cap", "ssl", "crypto"],
-},
-"zip": {
-    "extlibs": ['libzip'],
-    "libs": ['zip'],
-    # Different transitive deps for native vs cross
-    "linux-native-libs": ['z', 'bz2', 'lzma', 'ssl', 'crypto'],
-    "linux-cross-libs": ['z', 'bz2', 'ssl', 'crypto'],
 },
 ```
 
@@ -472,27 +432,10 @@ then run the test — the registration dies with the namespace.
 
 ### Adapting tests for cross targets
 
-See the [myapp-test skill](../../../.github/skills/myapp-test/references/patterns.md) (§11) for
-the two compile-time guard mechanisms: `#if !defined(__MYAPP_WINDOWS__)` (POSIX-only symbols) and
+Tests can use two compile-time guard mechanisms: `#if !defined(__MYAPP_WINDOWS__)` (POSIX-only symbols) and
 `#if !defined(MYAPP_STATIC)` (dynamic-loading-only tests — `MYAPP_STATIC` is defined on any
 `static=1` build, making `DynLib`/`PluginLoader` no-ops; they work on the default dynamic mingw
 build). Tests must run and pass under the cross runner, not skip on it.
-
-## Build paths
-
-Each cross-target gets its own build directory:
-
-```
-build/
-├── x86_64-linux-gnu/gcc-15/fast/      # native
-├── x86_64-linux-gnu/clang-21/fast/    # native clang
-├── x86_64-linux-musl/gcc-15/fast/     # musl
-├── arm64-linux-gnu/gcc-15/fast/       # aarch64 cross
-├── riscv64-linux-gnu/gcc-15/fast/     # riscv64 cross
-├── x86_64-windows-gnu/mingw-15/fast/  # windows cross
-├── x86_64-web-gnu/em-5/fast/          # emscripten
-└── arm64-android-bionic/ndk-28/fast/  # android
-```
 
 ## Quick reference
 

@@ -668,11 +668,11 @@ def _create_module_env(self, ctx, **kwargs):
 
 
 def _pkg_config(self, config):
-    return scons_utils.load_env_packages_config(self, [config])
+    return scons_utils.load_env_packages_config(self, config)
 
 
 def _parse_config(self, config):
-    return scons_utils.parse_config_command(self, [config])
+    return scons_utils.parse_config_command(self, config)
 
 
 def _find_in_file(self, src, search_str, ctx):

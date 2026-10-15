@@ -188,6 +188,8 @@ up it is reused, no second instance starts.
 | `ANDROID_SDK_PATH` | _(none)_ | SDK root; required |
 | `ANDROID_ADB_BIN` | `$(ANDROID_SDK_PATH)/platform-tools/adb` | adb binary |
 | `ANDROID_EMU_BIN` | `$(ANDROID_SDK_PATH)/emulator/emulator` | emulator binary |
+| `ANDROID_SDKMANAGER` | `$(ANDROID_SDK_PATH)/cmdline-tools/latest/bin/sdkmanager` | SDK manager used by `android-emu-setup` |
+| `ANDROID_AVDMANAGER` | `$(ANDROID_SDK_PATH)/cmdline-tools/latest/bin/avdmanager` | AVD manager used by `android-emu-setup` |
 | `AVD_NAME` | `<app-name>_emulation` | AVD name |
 | `EMU_SYS_IMAGE` | `system-images;android-35;google_apis;x86_64` | system image |
 | `EMU_DEVICE` | `pixel_6` | device profile |

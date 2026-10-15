@@ -50,6 +50,7 @@ ex("SBT_COMPILER", bld["compiler"])
 ex("SBT_TRIPLET", bld["triplet"])
 ex("SBT_LIBS_TYPE", bld["libs_type"])
 ex("SBT_CROSS", 1 if bld["cross"] else 0)
+ex("PYTHON_BIN", sys.executable)
 for mapping in ("env", "command"):
     for key, value in (d["test"].get(mapping) or {}).items():
         ex(key, value)

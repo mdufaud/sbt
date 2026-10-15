@@ -70,11 +70,13 @@ endif
 endif
 endif
 
-# Atomic write: a crash mid-generation leaves neither a partial makevars.mk
-# nor a stale one — the cleanup removes both, and the PLATFORM check below
-# then fires with the run hint.
-$(shell mkdir -p $(BUILD_ENTRY_PATH) && env $(MAKEOVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > $(MAKEVARS_PATH).tmp && mv $(MAKEVARS_PATH).tmp $(MAKEVARS_PATH) || rm -f $(MAKEVARS_PATH).tmp $(MAKEVARS_PATH))
--include $(MAKEVARS_PATH)
+MAKEVARS_TMP := $(shell mkdir -p '$(BUILD_ENTRY_PATH)' && mktemp '$(BUILD_ENTRY_PATH)/makevars.XXXXXX')
+MAKEVARS_RESULT := $(shell env $(MAKEOVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > '$(MAKEVARS_TMP)' && echo ok || { rm -f '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)'; echo failed; })
+ifeq ($(MAKEVARS_RESULT),ok)
+MAKEVARS_FRAGMENT := $(file <$(MAKEVARS_TMP))
+$(shell mv '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)' || rm -f '$(MAKEVARS_PATH)')
+$(eval $(MAKEVARS_FRAGMENT))
+endif
 
 ifeq ($(PLATFORM),)
 $(error "Makefile: platform not found - cannot find build path (run: $(PYTHON_BIN) $(SBT_CLI) makevars to see the error)")
@@ -144,7 +146,8 @@ SCONS_BUILD_CMD = $(SCONS_PREFIX) scons -Q -j$(j) $(SCONS_ARGS)
 SBT_LOCAL_VARS := j repeat SBT_LOCK_TIMEOUT SCONS_ARGS SCONS_PREFIX DEBUGGER \
 	DEBUGGER_ARGS TEST_RUNNER INSTALL_PREFIX INSTALL_DESTDIR \
 	INSTALL_NOCONFIRM INSTALL_LIBSUFFIX INSTALL_BINSUFFIX \
-	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX $(SBT_EXTRA_OPTS)
+	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX INSTALL_SHARESUFFIX \
+	INSTALL_NO_EXTLIBS PORT brief $(SBT_EXTRA_OPTS)
 SBT_FWD_NAMES := $(filter-out $(SBT_LOCAL_VARS) $(SBT_FWD_CORE),\
 	$(foreach o,$(MAKEOVERRIDES),$(firstword $(subst =, ,$(o)))))
 BUILD_CMD_LINE = $(foreach n,$(SBT_FWD_CORE),$(if $($(n)),$(n)=$($(n)))) \
@@ -283,7 +286,7 @@ endif
 .PHONY: setup # Install scons in venv
 
 setup: venv
-	(source $(VENV_PATH)/bin/activate && $(PIP_BIN) install scons)
+	"$(if $(VIRTUAL_ENV),$(VIRTUAL_ENV)/bin/python,$(VENV_PATH)/bin/python)" -m pip install scons
 
 ##################
 # Scons (builder)

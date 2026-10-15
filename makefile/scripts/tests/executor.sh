@@ -8,6 +8,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
+SANITIZER_FAILURE_PATTERN='^(==[0-9]+==)?(ERROR|WARNING|SUMMARY): (AddressSanitizer|LeakSanitizer|ThreadSanitizer|UndefinedBehaviorSanitizer|MemorySanitizer|HWAddressSanitizer):|^.+:[0-9]+(:[0-9]+)?: runtime error:'
 # before the profile source: profiles reference $REPORT_DIR; unset-only default
 # so an explicit empty TEST_REPORT_FLAGS stays an opt-out
 export REPORT_DIR="$TEST_PATH/reports"
@@ -60,8 +61,9 @@ print_module_failure()
     # show each [ FAILED ] line with the assertion context above it (colors kept);
     # markers/assertions are in the combined log since 2>&1. fall back to tail if
     # no failed marker (crash/sanitizer before any gtest output)
-    if grep -qaE "$TEST_FAILURE_PATTERN" "${output_log}"; then
-        grep -aE -B 12 -A 1 "$TEST_FAILURE_PATTERN" "${output_log}"
+    local failure_pattern="${TEST_FAILURE_PATTERN}|${SANITIZER_FAILURE_PATTERN}"
+    if grep -qaE "$failure_pattern" "${output_log}"; then
+        grep -aE -B 12 -A 1 "$failure_pattern" "${output_log}"
     else
         tail -n 40 "${output_log}"
     fi
@@ -77,7 +79,7 @@ module_failed()
     if [ -f "${exit_log}" ] && [ "$(cat "${exit_log}")" != "0" ]; then
         return 0
     fi
-    if [ -f "${output_log}" ] && grep -qaE "^==[0-9]+==ERROR: (AddressSanitizer|LeakSanitizer|ThreadSanitizer|UndefinedBehaviorSanitizer):|^SUMMARY: AddressSanitizer:" "${output_log}" 2>/dev/null; then
+    if [ -f "${output_log}" ] && grep -qaE "$SANITIZER_FAILURE_PATTERN" "${output_log}" 2>/dev/null; then
         return 0
     fi
     return 1
