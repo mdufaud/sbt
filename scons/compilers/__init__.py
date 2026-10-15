@@ -16,6 +16,11 @@ def apply_common_sanitizers(env):
     if builder.build_coverage:
         _append_both(env, ["--coverage", "-fprofile-arcs", "-ftest-coverage"])
 
+def apply_compile_time(env, flag):
+    """Emit per-TU timing data (-ftime-trace for clang, -ftime-report for gcc)."""
+    if builder.is_compile_time():
+        env.Append(CPPFLAGS = [flag])
+
 def apply_static_libasan(env):
     """Statically link the asan runtime when building static + asan."""
     if builder.build_static_libs and builder.build_asan:
