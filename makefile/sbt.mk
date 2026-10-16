@@ -51,25 +51,6 @@ SBT_CLI := $(SBT_PATH)/scripts/cli_helper.py
 BUILD_ENTRY_PATH := $(PROJECT_ROOT_PATH)/build
 MAKEVARS_PATH := $(BUILD_ENTRY_PATH)/makevars.mk
 
-# Build lock: concurrent runs on one project tree share .sconsign.dblite,
-# build/last and makevars.mk. Mutating goals wait here (SBT_LOCK_TIMEOUT
-# seconds, 0 disables) before touching any of them; read-only goals never
-# wait. The lock lives until this make exits, sub-makes and scons inherit it
-# through SBT_LOCK_HELD.
-SBT_LOCK_TIMEOUT ?= 7200
-SBT_LOCK_PATH := $(BUILD_ENTRY_PATH)/.sbt.lock
-SBT_LOCK_FREE_GOALS := help info conf dump jdump path targets
-ifneq ($(SBT_LOCK_TIMEOUT),0)
-ifneq ($(SBT_LOCK_HELD),$(SBT_LOCK_PATH))
-ifneq ($(or $(if $(MAKECMDGOALS),,x),$(filter-out $(SBT_LOCK_FREE_GOALS),$(MAKECMDGOALS))),)
-ifneq ($(shell mkdir -p $(BUILD_ENTRY_PATH) && $(PYTHON_BIN) $(SBT_PATH)/scripts/build_lock.py acquire $(SBT_LOCK_PATH) $(SBT_LOCK_TIMEOUT) $$PPID >&2; echo $$?),0)
-$(error "Makefile: build lock $(SBT_LOCK_PATH) not acquired within $(SBT_LOCK_TIMEOUT)s (SBT_LOCK_TIMEOUT=0 disables the lock)")
-endif
-export SBT_LOCK_HELD := $(SBT_LOCK_PATH)
-endif
-endif
-endif
-
 MAKEVARS_TMP := $(shell mkdir -p '$(BUILD_ENTRY_PATH)' && mktemp '$(BUILD_ENTRY_PATH)/makevars.XXXXXX')
 MAKEVARS_RESULT := $(shell env $(MAKEOVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > '$(MAKEVARS_TMP)' && echo ok || { rm -f '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)'; echo failed; })
 ifeq ($(MAKEVARS_RESULT),ok)
@@ -88,6 +69,25 @@ endif
 
 ifeq ($(COMPILE_MODE),)
 $(error "Makefile: compilation mode not found - cannot find build path")
+endif
+
+# Build lock, one per build variant (BUILD_PATH): runs on the same variant
+# share its .sconsign.dblite and vcpkg/ tree, other variants run in parallel.
+# Mutating goals wait here (SBT_LOCK_TIMEOUT seconds, 0 disables) before
+# touching any of them; read-only goals never wait. The lock lives until this
+# make exits, sub-makes and scons inherit it through SBT_LOCK_HELD.
+SBT_LOCK_TIMEOUT ?= 7200
+SBT_LOCK_PATH := $(BUILD_PATH)/.sbt.lock
+SBT_LOCK_FREE_GOALS := help info conf dump jdump path targets
+ifneq ($(SBT_LOCK_TIMEOUT),0)
+ifeq ($(filter $(SBT_LOCK_PATH),$(SBT_LOCK_HELD)),)
+ifneq ($(or $(if $(MAKECMDGOALS),,x),$(filter-out $(SBT_LOCK_FREE_GOALS),$(MAKECMDGOALS))),)
+ifneq ($(shell $(PYTHON_BIN) $(SBT_PATH)/scripts/build_lock.py acquire $(SBT_LOCK_PATH) $(SBT_LOCK_TIMEOUT) $$PPID >&2; echo $$?),0)
+$(error "Makefile: build lock $(SBT_LOCK_PATH) not acquired within $(SBT_LOCK_TIMEOUT)s (SBT_LOCK_TIMEOUT=0 disables the lock)")
+endif
+export SBT_LOCK_HELD := $(SBT_LOCK_HELD) $(SBT_LOCK_PATH)
+endif
+endif
 endif
 
 ##########

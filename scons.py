@@ -361,6 +361,9 @@ if compile_commands:
         logger.warning(e)
         pass
 
+# Per build variant, so variants build in parallel without sharing one sconsign db
+SConsignFile(os_path.join(builder.build_path, ".sconsign"))
+
 # Decides when to recompile - removing slow md5 in favor of timestamps
 # Decider('timestamp-newer')
 # Decider('MD5')

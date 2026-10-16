@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Serialize sbt runs on one project tree.
+"""Serialize sbt runs on one build variant.
 
-Concurrent make/scons runs share .sconsign.dblite, build/last and
-build/makevars.mk, so two of them (typically two agents) corrupt each other.
+Concurrent make/scons runs on the same build path share .sconsign.dblite and
+vcpkg/, so two of them (typically two agents) corrupt each other.
 The lock is an flock held by a detached process for as long as the owning
 make is alive: a killed make never leaves a stale lock behind.
 
