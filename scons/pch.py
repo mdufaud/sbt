@@ -16,9 +16,6 @@ import shutil
 import subprocess
 from os import path as os_path
 
-from SCons.Tool import CScanner
-from SCons.Util import flatten
-
 from sbt.core import builder, logger
 
 # wrapper drivers with no precompiled-header story
@@ -61,6 +58,10 @@ def backend(env, ctx):
 def compat_tokens(env):
     """Compile-line tokens a consumer must share with the header. Warnings,
     include paths and the consume flag itself never matter and are dropped."""
+    # imported on use: cli_helper reaches this module from make inclusion, before
+    # setup installs SCons
+    from SCons.Util import flatten
+
     tokens = [env.subst("$CXX")]
     for var in ("CXXFLAGS", "CCFLAGS", "CPPFLAGS"):
         skip_arg = False
@@ -79,6 +80,8 @@ def build_header(env, src, ctx):
     """Compile *src* into a precompiled header owned by this module and
     register it for the modules listing this one in their 'depends'. Returns
     the artifact node, or None when the compiler has no PCH support."""
+    from SCons.Tool import CScanner
+
     probe = backend(env, ctx)
     if probe is None:
         if not ctx.state.pch_unsupported_logged:
