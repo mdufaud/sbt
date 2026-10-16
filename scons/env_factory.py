@@ -16,6 +16,7 @@ from sbt.core import conf as sbt_conf
 from sbt.build import modules as build_modules_util
 from sbt.scons import utils as scons_utils
 from sbt.scons import cpp_modules as scons_cpp_modules
+from sbt.scons import pch as scons_pch
 
 
 ###############################################################################
@@ -211,5 +212,9 @@ def create_module_env(conf, ctx,
             new_final_lib.append(el)
     new_final_lib.reverse()
     env['LIBS'] = new_final_lib
+
+    # Precompiled header: modules transitively depending on the owner consume
+    # it like an exported lib, without declaring anything.
+    scons_pch.inherit(env, conf, ctx)
 
     return env

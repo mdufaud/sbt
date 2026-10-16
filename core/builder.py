@@ -527,6 +527,7 @@ build_test_path = join(build_path, "test")
 build_export_path = join(build_path, "export")
 build_demo_path = join(build_path, "demo")
 build_obj_path = join(build_path, "obj")
+build_pch_path = join(build_path, "pch")
 
 # SBT external project dependencies
 sbt_deps_path = join(build_root_path, ".sbt-deps")

@@ -13,6 +13,7 @@ Public API (methods available in module scons.py scripts):
   # static_libs: True (wrap all LIBS, requires .a files) or list[str] (wrap named libs only)
   env.build_demos(srcs, **kwargs)
   env.build_cpp_modules(src, **kwargs)
+  env.build_pch(src)
   env.export_test(includes=[], resources=[])
   env.copy_into_build(src, dst)
   env.file_basename(path)
@@ -52,6 +53,7 @@ from sbt.scons import utils as scons_utils
 from sbt.scons import android as scons_android
 from sbt.scons import cpp_modules as scons_cpp_modules
 from sbt.scons import env_factory
+from sbt.scons import pch as scons_pch
 
 
 ###############################################################################
@@ -392,12 +394,13 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
     if cpp_mods:
         scons_cpp_modules.enable(bin_env, ctx)
+        scons_pch.strip(bin_env)
 
     _apply_bin_linkflags(self, bin_env, builder.build_bin_path)
 
     name += ctx.bin_ext
     bin_path = os_path.join(builder.build_bin_path, name)
-    if cpp_mods:
+    if cpp_mods or bin_env.get("PCH"):
         objects = scons_cpp_modules.build_objects(bin_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         result = bin_env.Program(bin_path, objects, **build_kwargs)
     else:
@@ -437,6 +440,7 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
 
     if cpp_mods:
         scons_cpp_modules.enable(test_env, ctx)
+        scons_pch.strip(test_env)
 
     if static_libs:
         _wrap_libs_static(test_env, static_libs)
@@ -450,7 +454,7 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
     name += ctx.test_ext
     test_path = os_path.join(builder.build_test_path, "bin", name)
 
-    if cpp_mods:
+    if cpp_mods or test_env.get("PCH"):
         objects = scons_cpp_modules.build_objects(test_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         test = test_env.Program(test_path, objects, **build_kwargs)
     else:
@@ -487,6 +491,7 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
 
     if cpp_mods:
         scons_cpp_modules.enable(demo_env, ctx)
+        scons_pch.strip(demo_env)
 
     if static_libs:
         _wrap_libs_static(demo_env, static_libs)
@@ -495,7 +500,7 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
 
     name += ctx.bin_ext
     demo_path = os_path.join(builder.build_demo_path, name)
-    if cpp_mods:
+    if cpp_mods or demo_env.get("PCH"):
         objects = scons_cpp_modules.build_objects(demo_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         demo = demo_env.Program(demo_path, objects, **build_kwargs)
     else:
@@ -510,6 +515,17 @@ def _build_demos(self, srcs, **kwargs):
     for src in srcs:
         name = self.file_basename(src)
         self.build_demo(src, name=name, **kwargs)
+
+
+def _build_pch(self, src, ctx):
+    """Own a precompiled header for this module: record the owner and preload
+    the PCH into the module env. Modules depending on this one inherit the
+    consumption transitively through the env factory. Call before build_lib so
+    the owner's own objects are created with the consume flag and depend on
+    the compiled instance."""
+    anchor = self.File(src)
+    ctx.state.pch = {"owner": self["APP_MODULE_NAME"], "anchor": anchor}
+    return scons_pch.setup_consumer(self, ctx)
 
 
 def _build_cpp_modules_method(self, src, ctx, **kwargs):
@@ -547,6 +563,7 @@ def _build_cpp_modules_method(self, src, ctx, **kwargs):
     # self would inject -fmodules/-fmodule-mapper into every source registered
     # before this call (SCons is lazy: flags are evaluated at build time).
     scons_cpp_modules.enable(cppm_env, ctx)
+    scons_pch.strip(cppm_env)
 
     bmi_dir = build_cpp_modules.get_bmi_dir(backend, builder.build_path, ctx.is_dry_run)
     imported_objects = scons_cpp_modules.resolve_nodes(imports, ctx) if imports else []
@@ -722,6 +739,9 @@ def register_methods(base_env, ctx):
     def build_cpp_modules(self, src, **kwargs):
         return _build_cpp_modules_method(self, src, ctx, **kwargs)
 
+    def build_pch(self, src):
+        return _build_pch(self, src, ctx)
+
     def export_test(self, includes=[], resources=[]):
         return _export_test(self, includes, resources, ctx)
 
@@ -767,6 +787,7 @@ def register_methods(base_env, ctx):
     base_env.AddMethod(build_demo, "build_demo")
     base_env.AddMethod(build_demos, "build_demos")
     base_env.AddMethod(build_cpp_modules, "build_cpp_modules")
+    base_env.AddMethod(build_pch, "build_pch")
     base_env.AddMethod(export_test, "export_test")
     base_env.AddMethod(copy_into_build, "copy_into_build")
     base_env.AddMethod(file_basename, "file_basename")

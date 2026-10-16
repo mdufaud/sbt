@@ -108,7 +108,9 @@ def build_objects(env, src, ctx, shared=False, cpp_modules=[], **kwargs):
 
     Prebuilt object nodes (matched by suffix) pass through unchanged.
     When *cpp_modules* is non-empty, a Depends() edge is added from the
-    compiled objects to the resolved C++ module object nodes.
+    compiled objects to the resolved C++ module object nodes. When the env
+    consumes a precompiled header (env['PCH']), the objects depend on the
+    compiled instance — the consume flag itself is invisible to SCons.
     """
     sources, prebuilt = split_inputs(env, src)
     objects = []
@@ -117,4 +119,7 @@ def build_objects(env, src, ctx, shared=False, cpp_modules=[], **kwargs):
         objects = scons_utils.as_list(builder_func(sources, **kwargs))
         if cpp_modules:
             env.Depends(objects, resolve_nodes(cpp_modules, ctx))
+        pch = env.get("PCH")
+        if pch:
+            env.Depends(objects, pch["node"])
     return objects + prebuilt
