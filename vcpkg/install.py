@@ -95,6 +95,8 @@ if _with_sys_pkg:
         logger.warning("with-system-packages: app has no '{}' configuration".format(_pkg_conf_name))
     else:
         skip_libs.extend(_pkg_conf.keys())
+# vcpkg/manifest.py reads it to keep system-package libs out of the forced no-default-features set
+app.extlibs_skip = skip_libs
 
 extlibs = {}
 build_modules = {}
