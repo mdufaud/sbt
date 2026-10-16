@@ -37,6 +37,7 @@ _NON_FLAG_CONF_KEYS = frozenset([
     "conditional-env", "conditional-depends",
     "allow-platforms", "exclude-platforms",
     "allow-link-shared", "allow-link-static",
+    "pch", # false opts a module out of consuming the owner's precompiled header
     "external", # self injected whitelist
 ])
 
