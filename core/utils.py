@@ -10,6 +10,18 @@ def dedupe_keep_order(values):
     """Remove duplicates from *values* while preserving first-seen order."""
     return list(dict.fromkeys(values))
 
+def dedupe_keep_last_order(values):
+    """Remove duplicates from *values* while preserving the last occurrence of
+    each entry. Static archive linking resolves left to right: keeping the last
+    occurrence places a library next to its lowest-level consumer, so
+    dependency archives stay after the ones referencing them."""
+    kept = []
+    for value in reversed(values):
+        if value not in kept:
+            kept.append(value)
+    kept.reverse()
+    return kept
+
 ###############################################################################
 # Filesystem
 ###############################################################################

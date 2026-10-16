@@ -1,7 +1,7 @@
 import os
 import sys
 
-from sbt.core.utils import dedupe_keep_order
+from sbt.core.utils import dedupe_keep_last_order, dedupe_keep_order
 from sbt.core import conf as sbt_conf
 from sbt.core import loader
 
@@ -120,10 +120,13 @@ def resolve_modules_exports(modules, modules_options):
             resolved_export_defines.extend(dep_conf.get("_resolved_export_defines", []))
             resolved_export_flags.extend(dep_conf.get("_resolved_export_flags", []))
             resolved_export_link.extend(dep_conf.get("_resolved_export_link", []))
-        conf["_resolved_export_libs"] = dedupe_keep_order(resolved_export_libs)
-        conf["_resolved_export_defines"] = dedupe_keep_order(resolved_export_defines)
-        conf["_resolved_export_flags"] = dedupe_keep_order(resolved_export_flags)
-        conf["_resolved_export_link"] = dedupe_keep_order(resolved_export_link)
+        # keep-last: a consumer earlier in the closure must not pin a static
+        # archive before a lower-level consumer that also needs it (libcurl's
+        # ssl/crypto must resolve after -lcurl, not after -lsihd_net only)
+        conf["_resolved_export_libs"] = dedupe_keep_last_order(resolved_export_libs)
+        conf["_resolved_export_defines"] = dedupe_keep_last_order(resolved_export_defines)
+        conf["_resolved_export_flags"] = dedupe_keep_last_order(resolved_export_flags)
+        conf["_resolved_export_link"] = dedupe_keep_last_order(resolved_export_link)
 
 def get_module_libs(modules, modname):
     conf = modules[modname]
