@@ -1,19 +1,12 @@
 """SCons-level precompiled header integration.
 
-A module owns a PCH via env.build_pch('src/pch.hpp') in its scons.py: the call
-records the owner and preloads the PCH into the owner's own environment. Every
-module depending on it transitively inherits the same consumption through the
-module env factory, exactly like exported libs — consumers declare nothing.
+A dedicated module compiles a header with env.build_header('src/pch.hpp'). A
+module consumes it by listing that module in its own 'depends': the consumer's
+compile flags must match the ones the header was built with, and the consume
+flag lands in CXXFLAGS only. Nothing propagates to dependents of a consumer.
 
-Instances are compiled per environment fingerprint (CXX, CXXFLAGS, CPPFLAGS,
-CPPDEFINES): gcc rejects a PCH whose creation saw macros the consumer lacks
-(silent fallback to a full parse) and clang hard-errors on macro conflicts,
-while both accept differing -I lists and consumer-extra defines. Keying on
-that tuple yields the fewest instances that stay valid by construction; -I
-differences are excluded on purpose since both compilers are insensitive.
-
-Creation and use always come from clones of the same consuming env, so the
-strict flag identity the backends expect holds by construction.
+gcc silently falls back to a full parse when a PCH is not usable and clang
+hard-errors on macro/option conflicts, so a mismatch is rejected up front.
 """
 
 import hashlib
@@ -24,15 +17,25 @@ import subprocess
 from os import path as os_path
 
 from SCons.Tool import CScanner
+from SCons.Util import flatten
 
 from sbt.core import builder, logger
 
 # wrapper drivers with no precompiled-header story
 _UNSUPPORTED_COMPILERS = {"zig", "em"}
 
+# clang compares mtime+size of every included file; SCons judges by content
+# (MD5-timestamp), so a touched-but-identical header must pass. Needed both when
+# the PCH is created and when it is used.
+_CLANG_VALIDATE = "-fpch-validate-input-files-content"
+
+# flags that never invalidate a PCH, plus the options taking a separate argument
+_IGNORED_PREFIXES = ("-W", "-I", "-isystem", _CLANG_VALIDATE)
+_IGNORED_WITH_ARG = {"-I", "-isystem", "-idirafter", "-iquote", "-include", "-include-pch"}
+
 
 def backend(env, ctx):
-    """Classify the consuming compiler as 'gcc' or 'clang', or None when
+    """Classify the compiler as ('gcc'|'clang', version banner), or None when
     unsupported (zig, emscripten) or when the probe fails. The probe strips a
     leading ccache token: ccache answers --version itself and would hide the
     real driver identity behind gcc-named wrappers (llvm-mingw)."""
@@ -48,38 +51,99 @@ def backend(env, ctx):
             try:
                 probe = subprocess.run(tokens + ["--version"], capture_output=True, text=True, timeout=10)
                 if probe.returncode == 0:
-                    result = "clang" if "clang" in probe.stdout else "gcc"
+                    result = ("clang" if "clang" in probe.stdout else "gcc", probe.stdout.strip())
             except Exception:
                 result = None
     ctx.state.pch_backends[cxx] = result
     return result
 
 
-def fingerprint(env):
-    """Hash the env facts a PCH instance must share with every consumer."""
-    from SCons.Util import flatten
+def compat_tokens(env):
+    """Compile-line tokens a consumer must share with the header. Warnings,
+    include paths and the consume flag itself never matter and are dropped."""
+    tokens = [env.subst("$CXX")]
+    for var in ("CXXFLAGS", "CCFLAGS", "CPPFLAGS"):
+        skip_arg = False
+        for flag in (str(f) for f in flatten(env.get(var, []))):
+            if skip_arg:
+                skip_arg = False
+            elif flag in _IGNORED_WITH_ARG:
+                skip_arg = True
+            elif not flag.startswith(_IGNORED_PREFIXES):
+                tokens.append(flag)
+    tokens += env.subst("$_CPPDEFFLAGS").split()
+    return sorted(tokens)
 
-    parts = [
-        env.subst("$CXX"),
-        repr([str(f) for f in env.get("CXXFLAGS", [])]),
-        repr([str(f) for f in env.get("CPPFLAGS", [])]),
-        repr(sorted(str(d) for d in flatten(env.get("CPPDEFINES", [])))),
-    ]
-    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:12]
+
+def build_header(env, src, ctx):
+    """Compile *src* into a precompiled header owned by this module and
+    register it for the modules listing this one in their 'depends'. Returns
+    the artifact node, or None when the compiler has no PCH support."""
+    probe = backend(env, ctx)
+    if probe is None:
+        if not ctx.state.pch_unsupported_logged:
+            logger.info("pch: no precompiled-header backend for compiler '{}', skipping".format(env.subst("$CXX")))
+            ctx.state.pch_unsupported_logged = True
+        return None
+    kind, version = probe
+    modname = env["APP_MODULE_NAME"]
+    # the compiler identity is part of the path: a compiler update must rebuild
+    # the artifact, and the action text alone does not change with it
+    instance_dir = hashlib.sha256((env.subst("$CXX") + version).encode()).hexdigest()[:12]
+    pch_dir = os_path.join(builder.build_pch_path, modname, instance_dir)
+    anchor_copy = env.File(os_path.join(pch_dir, "pch.hpp"))
+    copy_node = env.Command(anchor_copy, env.File(src), _copy_action)[0]
+    compile_cmd = "$CXX -o $TARGET -c $CXXFLAGS $CCFLAGS $_CCCOMCOM -x c++-header -MD -MF ${TARGET.abspath}.d $SOURCE"
+    if kind == "gcc":
+        # gcc resolves the artifact as the sibling <header>.gch of whatever
+        # -include names, and silently reparses the header if it is invalid
+        artifact = env.File(str(anchor_copy) + ".gch")
+        flag = ["-include", str(anchor_copy)]
+    else:
+        artifact = env.File(os_path.join(pch_dir, "pch.pch"))
+        flag = ["-include-pch", str(artifact), _CLANG_VALIDATE]
+        compile_cmd += " " + _CLANG_VALIDATE
+    node = env.Command(artifact, copy_node, compile_cmd, source_scanner=CScanner)[0]
+    _track_includes(env, node)
+    ctx.state.pch_headers[modname] = {"node": node, "flag": flag, "tokens": compat_tokens(env), "module": modname}
+    logger.info("pch: header module '{}' ({}) compiled".format(modname, kind))
+    return node
 
 
-def inherit(env, conf, ctx):
-    """Attach the registered PCH to a module env transitively depending on its
-    owner. Called for every module env right before the module scons.py runs.
-    A module opts out with conf key 'pch': False — for dependency trees whose
-    headers are feature-macro hostile (python's pyconfig.h redefines what the
-    preloaded glibc state already defines, dying under -Werror)."""
-    reg = ctx.state.pch
-    if reg is None or conf.get("pch") is False or conf["modname"] == reg["owner"]:
+def consume(env, dep, ctx):
+    """Preload the header of *dep* into *env* when *dep* is a header module:
+    reject flag divergence, then append the consume flag to CXXFLAGS only —
+    CPPFLAGS would leak it into C compilations, which cannot eat a C++ header."""
+    header = ctx.state.pch_headers.get(dep)
+    if header is None:
         return
-    if not _depends_on_owner(ctx.build_modules, conf["modname"], reg["owner"]):
+    current = env.get("PCH")
+    if current is not None:
+        raise RuntimeError("module '{}' depends on several header modules ('{}' and '{}'), only one is supported".format(
+            env["APP_MODULE_NAME"], current["module"], dep))
+    env["PCH"] = header
+    verify(env)
+    for token in header["flag"]:
+        env.AppendUnique(CXXFLAGS=[token])
+    _patch_ccache(env["ENV"])
+
+
+def verify(env):
+    """Fail when *env* no longer compiles with the flags its header was built
+    with. Re-run on test and demo envs, which gain app-level flags after the
+    module env is created."""
+    header = env.get("PCH")
+    if header is None:
         return
-    setup_consumer(env, ctx)
+    tokens = compat_tokens(env)
+    if tokens == header["tokens"]:
+        return
+    only_module = sorted(set(tokens) - set(header["tokens"]))
+    only_header = sorted(set(header["tokens"]) - set(tokens))
+    raise RuntimeError(
+        "module '{}' cannot use header module '{}': its C++ compile flags differ "
+        "(only in module: {}; only in header module: {}). Align the flags or drop '{}' from the module's depends".format(
+            env["APP_MODULE_NAME"], header["module"], only_module, only_header, header["module"]))
 
 
 def strip(env):
@@ -88,68 +152,25 @@ def strip(env):
     instance = env.get("PCH")
     if instance is None:
         return
+    logger.info("pch: module '{}' compiles C++ modules, header module '{}' skipped".format(
+        env.get("APP_MODULE_NAME"), instance["module"]))
     env["CXXFLAGS"] = [f for f in env["CXXFLAGS"] if f not in instance["flag"]]
     del env["PCH"]
 
 
-def setup_consumer(env, ctx):
-    """Preload the registered PCH into *env*: reuse or compile the matching
-    instance and append the consume flag to CXXFLAGS only — CPPFLAGS would
-    leak it into C compilations, which cannot eat a C++ header."""
-    kind = backend(env, ctx)
-    if kind is None:
-        if not ctx.state.pch_unsupported_logged:
-            logger.info("pch: no precompiled-header backend for compiler '{}', skipping".format(env.subst("$CXX")))
-            ctx.state.pch_unsupported_logged = True
-        return None
-    key = fingerprint(env)
-    instance = ctx.state.pch_instances.get(key)
-    if instance is None:
-        instance = _create_instance(env, ctx, kind, key)
-        ctx.state.pch_instances[key] = instance
-        logger.info("pch: instance {} ({}) compiled for module '{}'".format(key, kind, env.get("APP_MODULE_NAME")))
-    env["PCH"] = instance
-    for token in instance["flag"]:
-        env.AppendUnique(CXXFLAGS=[token])
-    _patch_ccache(env["ENV"])
-    return instance
-
-
-def _depends_on_owner(build_modules, modname, owner):
-    seen = set()
-    stack = [modname]
-    while stack:
-        name = stack.pop()
-        if name in seen:
-            continue
-        seen.add(name)
-        for dep in build_modules.get(name, {}).get("depends", []):
-            if dep == owner:
-                return True
-            stack.append(dep)
-    return False
-
-
-def _create_instance(env, ctx, kind, key):
-    anchor = ctx.state.pch["anchor"]
-    pch_dir = os_path.join(builder.build_pch_path, key)
-    anchor_copy = env.File(os_path.join(pch_dir, "pch.hpp"))
-    copy_node = env.Command(anchor_copy, ctx.state.pch["anchor"], _copy_action)[0]
-    if kind == "gcc":
-        # gcc resolves the artifact as the sibling <header>.gch of whatever
-        # -include names, and silently reparses the header if it is invalid
-        artifact = env.File(str(anchor_copy) + ".gch")
-        flag = ["-include", str(anchor_copy)]
-    else:
-        artifact = env.File(os_path.join(pch_dir, "pch.pch"))
-        flag = ["-include-pch", str(artifact)]
-    pch_env = env.Clone()
-    # source_scanner tracks the anchor's includes so a dep header change
-    # (a vcpkg bump replacing extlib) rebuilds the instance
-    node = pch_env.Command(artifact, copy_node,
-                           "$CXX -o $TARGET -c $CXXFLAGS $CCFLAGS $_CCCOMCOM -x c++-header $SOURCE",
-                           source_scanner=CScanner)[0]
-    return {"node": node, "flag": flag}
+def _track_includes(env, node):
+    """Depend on every header the previous compile actually read, system ones
+    included: the depfile only exists after a first build, which is also the
+    only time there is nothing to invalidate."""
+    depfile = node.abspath + ".d"
+    if not os_path.isfile(depfile):
+        return
+    with open(depfile) as fd:
+        text = fd.read().replace("\\\n", " ")
+    deps = shlex.split(text.partition(":")[2])
+    # compiler cwd is the top dir; dropped files can vanish (compiler update)
+    nodes = [env.File(dep if os_path.isabs(dep) else "#/" + dep) for dep in deps]
+    env.Depends(node, [n for n in nodes if os_path.exists(n.abspath)])
 
 
 def _copy_action(target, source, env):

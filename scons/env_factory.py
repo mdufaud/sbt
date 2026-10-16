@@ -213,8 +213,8 @@ def create_module_env(conf, ctx,
     new_final_lib.reverse()
     env['LIBS'] = new_final_lib
 
-    # Precompiled header: modules transitively depending on the owner consume
-    # it like an exported lib, without declaring anything.
-    scons_pch.inherit(env, conf, ctx)
+    # Precompiled header: only direct dependencies on a header module consume it.
+    for dep_modname in conf.get("declared-depends", []):
+        scons_pch.consume(env, dep_modname, ctx)
 
     return env

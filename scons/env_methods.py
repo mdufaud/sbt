@@ -13,7 +13,7 @@ Public API (methods available in module scons.py scripts):
   # static_libs: True (wrap all LIBS, requires .a files) or list[str] (wrap named libs only)
   env.build_demos(srcs, **kwargs)
   env.build_cpp_modules(src, **kwargs)
-  env.build_pch(src)
+  env.build_header(src)
   env.export_test(includes=[], resources=[])
   env.copy_into_build(src, dst)
   env.file_basename(path)
@@ -441,6 +441,7 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
     if cpp_mods:
         scons_cpp_modules.enable(test_env, ctx)
         scons_pch.strip(test_env)
+    scons_pch.verify(test_env)
 
     if static_libs:
         _wrap_libs_static(test_env, static_libs)
@@ -492,6 +493,7 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
     if cpp_mods:
         scons_cpp_modules.enable(demo_env, ctx)
         scons_pch.strip(demo_env)
+    scons_pch.verify(demo_env)
 
     if static_libs:
         _wrap_libs_static(demo_env, static_libs)
@@ -517,15 +519,10 @@ def _build_demos(self, srcs, **kwargs):
         self.build_demo(src, name=name, **kwargs)
 
 
-def _build_pch(self, src, ctx):
-    """Own a precompiled header for this module: record the owner and preload
-    the PCH into the module env. Modules depending on this one inherit the
-    consumption transitively through the env factory. Call before build_lib so
-    the owner's own objects are created with the consume flag and depend on
-    the compiled instance."""
-    anchor = self.File(src)
-    ctx.state.pch = {"owner": self["APP_MODULE_NAME"], "anchor": anchor}
-    return scons_pch.setup_consumer(self, ctx)
+def _build_header(self, src, ctx):
+    """Compile *src* into a precompiled header owned by this module. Modules
+    listing this one in their own 'depends' consume it (see docs/pch.md)."""
+    return scons_pch.build_header(self, src, ctx)
 
 
 def _build_cpp_modules_method(self, src, ctx, **kwargs):
@@ -739,8 +736,8 @@ def register_methods(base_env, ctx):
     def build_cpp_modules(self, src, **kwargs):
         return _build_cpp_modules_method(self, src, ctx, **kwargs)
 
-    def build_pch(self, src):
-        return _build_pch(self, src, ctx)
+    def build_header(self, src):
+        return _build_header(self, src, ctx)
 
     def export_test(self, includes=[], resources=[]):
         return _export_test(self, includes, resources, ctx)
@@ -787,7 +784,7 @@ def register_methods(base_env, ctx):
     base_env.AddMethod(build_demo, "build_demo")
     base_env.AddMethod(build_demos, "build_demos")
     base_env.AddMethod(build_cpp_modules, "build_cpp_modules")
-    base_env.AddMethod(build_pch, "build_pch")
+    base_env.AddMethod(build_header, "build_header")
     base_env.AddMethod(export_test, "export_test")
     base_env.AddMethod(copy_into_build, "copy_into_build")
     base_env.AddMethod(file_basename, "file_basename")

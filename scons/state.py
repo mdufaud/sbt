@@ -28,9 +28,8 @@ class BuildState:
         self.cpp_modules = {}      # cpp_module_name -> {owner, compiler, bmi_dir, bmi_path, objects}
 
         # Precompiled header support
-        self.pch = None                  # {"owner": module_name, "anchor": header node}
-        self.pch_backends = {}           # CXX command -> 'gcc' | 'clang' | None
-        self.pch_instances = {}          # fingerprint -> {"node": pch artifact, "flag": consume flag}
+        self.pch_backends = {}           # CXX command -> ('gcc' | 'clang', version) | None
+        self.pch_headers = {}            # header module -> {"node", "flag", "tokens", "module"}
         self.pch_unsupported_logged = False
 
         # Git repositories cloned during the build
