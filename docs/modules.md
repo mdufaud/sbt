@@ -667,12 +667,8 @@ override any engine value):
 3. **App/addon test env**: whatever `app.generate_test_env(builder)` returns, then
    `TEST_RUN_FLAGS`-style overrides from `app.generate_test_command(builder)`.
 
-Platform facts are also compile-time defines on every module and test binary:
-`SBT_PLATFORM`, `SBT_MACHINE`, `SBT_LIBC`, `SBT_MODE` (string literals) and `SBT_CROSS`
-(`0`/`1`) — e.g. `constexpr bool is_android = SBT_PLATFORM == std::string_view("android");`.
-Opt out with `sbt_platform_defines = False` in `app.py` or an addon include. The same
-facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`, `$(COMPILE_MODE)`,
-`$(COMPILER)`, `$(GNU_TRIPLET)`, `$(CROSS)`.
+The same facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`,
+`$(COMPILE_MODE)`, `$(COMPILER)`, `$(GNU_TRIPLET)`, `$(CROSS)`.
 
 #### Machine-readable reports
 
