@@ -12,9 +12,8 @@ def dedupe_keep_order(values):
 
 def dedupe_keep_last_order(values):
     """Remove duplicates from *values* while preserving the last occurrence of
-    each entry. Static archive linking resolves left to right: keeping the last
-    occurrence places a library next to its lowest-level consumer, so
-    dependency archives stay after the ones referencing them."""
+    each entry: a static archive must follow every entry referencing it, and
+    the last occurrence is its lowest-level consumer."""
     kept = []
     for value in reversed(values):
         if value not in kept:
