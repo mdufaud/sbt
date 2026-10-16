@@ -145,11 +145,26 @@ make dep m=base,app            # Only deps needed by base, app
 make dep test=1                # Include test deps (gtest)
 make dep demo=1                # Include demo deps (cli11)
 make dep test=1 demo=1         # Both
-make dep licenses              # Print SPDX data and write <build_path>/vcpkg/licenses.json
+make dep licenses              # Print SPDX data and write <build_path>/security/licenses.json
+make dep sbom                  # Write <build_path>/security/sbom.cdx.json (CycloneDX 1.5)
 ```
 
 `make dep licenses` reports licenses for installed vcpkg ports and warns about copyleft
 licenses. The JSON report contains both port-to-license and license-to-ports mappings.
+
+Path change: the report moved from `<build_path>/vcpkg/licenses.json` to
+`<build_path>/security/licenses.json`. Consumers reading the old path must update it.
+
+`security/` lives inside the build variant, next to `coverage/` and `dist/`, e.g.
+`build/x86_64-linux-gnu/gcc-16/fast/shared/security/`. Both `licenses.json` and
+`sbom.cdx.json` are written there.
+
+`make dep sbom` writes a CycloneDX 1.5 SBOM with one component per installed vcpkg port
+(name and version from `vcpkg_installed/vcpkg/status` for the build triplet, SPDX license from the
+port's `vcpkg.json`, `pkg:generic` purl). Ports without a license in vcpkg are reported `unknown`.
+It has no hashes and no CPE, so CVE matchers relying on CPE will miss ports. Dependencies
+outside vcpkg (system packages, pkg-configs, hand-listed `.a` in cross builds) are not listed.
+`make dist tar` and `make dist apt` embed it when present.
 
 ### Cross-compilation
 
@@ -172,6 +187,7 @@ make dep search <name>         # Search for a package
 make dep update                # Update vcpkg itself
 make dep install <name>        # Install a package manually
 make dep licenses              # Write an SPDX license report
+make dep sbom                  # Write a CycloneDX SBOM
 ```
 
 ## How it works internally

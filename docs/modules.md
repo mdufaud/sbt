@@ -516,6 +516,7 @@ make def=MY_DEFINE=1           # Add preprocessor define
 | `clean_build` | Remove the entire `build/` tree, including all configurations and build-local dependency state. |
 | `fclean` | Remove build outputs, distributions, dependency installs, caches, and `.sconsign.dblite`. |
 | `dep licenses` | Print installed vcpkg port licenses and write the JSON report. |
+| `dep sbom` | Write the CycloneDX SBOM of installed vcpkg ports to `security/sbom.cdx.json`. |
 
 The `scripts/cli_helper.py` command-line helper also supports `keys`, `dump`, `compiler`,
 `platform`, `machine`, `mode`, `termux`, `path`, `modules_path`, `static`, `triplet`,

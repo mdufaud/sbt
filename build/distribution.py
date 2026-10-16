@@ -17,6 +17,15 @@ def _copy_tree_if_exists(src, dst):
         os.makedirs(dst, exist_ok = True)
         shutil.copytree(src, dst, dirs_exist_ok = True)
 
+SBOM_FILE = "sbom.cdx.json"
+
+def _get_sbom_path():
+    sbom_path = join(_b.build_security_path, SBOM_FILE)
+    if os.path.isfile(sbom_path):
+        return sbom_path
+    logger.warning("sbom not found at {}, run 'make dep sbom' to embed it".format(sbom_path))
+    return None
+
 
 ###############################################################################
 # TAR distribution
@@ -51,6 +60,10 @@ def create_tar_package(app):
         # extlibs/bin — merged into bin/
         if os.path.isdir(_b.build_extlib_bin_path):
             tar.add(_b.build_extlib_bin_path, arcname = os.path.basename(_b.build_bin_path))
+        # sbom
+        sbom_path = _get_sbom_path()
+        if sbom_path:
+            tar.add(sbom_path, arcname = SBOM_FILE)
 
 ###############################################################################
 # APT distribution
@@ -119,6 +132,12 @@ def create_apt_package(app, modules):
     _copy_tree_if_exists(_b.build_hdr_path, join(apt_path, "usr", "include"))
     # /usr/share
     _copy_tree_if_exists(_b.build_share_path, join(apt_path, "usr", "share"))
+    # /usr/share/doc/<app> — sbom
+    sbom_path = _get_sbom_path()
+    if sbom_path:
+        doc_path = join(apt_path, "usr", "share", "doc", app.name)
+        os.makedirs(doc_path, exist_ok = True)
+        shutil.copy2(sbom_path, doc_path)
     # /usr/lib/<multiarch-triplet> — prefer dpkg-architecture if available
     _deb_multiarch = _get_deb_multiarch()
     _copy_tree_if_exists(_b.build_lib_path, join(apt_path, "usr", "lib", _deb_multiarch))

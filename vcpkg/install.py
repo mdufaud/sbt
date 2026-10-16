@@ -28,6 +28,7 @@ from sbt.core import utils
 from sbt.vcpkg.triplets import detect_triplet
 from sbt.vcpkg.cross import build_overlay_triplet_with_flags, generate_pkgconfig_wrapper
 from sbt.vcpkg import licenses as vcpkg_licenses
+from sbt.vcpkg import sbom as vcpkg_sbom
 from sbt.vcpkg.manifest import (
     build_vcpkg_manifest,
     write_vcpkg_manifest,
@@ -395,7 +396,7 @@ def _execute_vcpkg_licenses():
         return 1
 
     vcpkg_ports_path = os.path.join(os.path.dirname(vcpkg_bin_path), "ports")
-    output_path = os.path.join(vcpkg_build_path, "licenses.json")
+    output_path = os.path.join(builder.build_security_path, "licenses.json")
 
     port_licenses = vcpkg_licenses.collect_licenses(
         vcpkg_installed_path,
@@ -405,6 +406,29 @@ def _execute_vcpkg_licenses():
     )
     vcpkg_licenses.dump_licenses(port_licenses, output_path)
     logger.info(f"licenses written to {output_path}")
+    return 0
+
+
+def _execute_vcpkg_sbom():
+    vcpkg_installed_path = os.path.join(vcpkg_build_path, "vcpkg_installed")
+    if not os.path.isdir(vcpkg_installed_path):
+        logger.error(f"vcpkg installed directory not found: {vcpkg_installed_path}")
+        logger.error("run 'make dep' first")
+        return 1
+
+    vcpkg_ports_path = os.path.join(os.path.dirname(vcpkg_bin_path), "ports")
+    output_path = os.path.join(builder.build_security_path, "sbom.cdx.json")
+
+    bom = vcpkg_sbom.build_sbom(
+        app.name,
+        app.version,
+        vcpkg_installed_path,
+        vcpkg_triplet,
+        (gen_overlay_path, sbt_vcpkg_addon_overlay_ports_path),
+        vcpkg_ports_path,
+    )
+    vcpkg_sbom.dump_sbom(bom, output_path)
+    logger.info(f"sbom written to {output_path}")
     return 0
 
 
@@ -503,6 +527,11 @@ def licenses():
     sys.exit(_execute_vcpkg_licenses())
 
 
+def sbom():
+    """Write a CycloneDX SBOM for all installed vcpkg ports."""
+    sys.exit(_execute_vcpkg_sbom())
+
+
 if __name__ == "__main__":
     if "fetch" in sys.argv:
         fetch()
@@ -512,3 +541,5 @@ if __name__ == "__main__":
         depend_info()
     elif "licenses" in sys.argv:
         licenses()
+    elif "sbom" in sys.argv:
+        sbom()

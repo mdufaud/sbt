@@ -12,7 +12,7 @@ Project-specific configuration lives outside SBT, in `app.py` and an `addon/` di
 ├── core/                # Foundations: builder, loader, architectures, logger, utils
 ├── build/                # Module graph resolution, C++20 modules, distribution, sbt-to-sbt deps
 ├── scons/                # SCons environment factory, compiler backends, Android/context helpers
-├── vcpkg/                # vcpkg manifest generation, triplets, cross toolchains, patches, licenses
+├── vcpkg/                # vcpkg manifest generation, triplets, cross toolchains, patches, licenses, SBOM
 ├── makefile/             # Make targets included by the top-level Makefile (build, test, dep, dist, ...)
 ├── android/              # Default Gradle project templates for Android APK builds
 ├── scripts/              # CLI helper, cppcheck runner, WASM dev server
@@ -34,6 +34,7 @@ Both copy `genesis_fs/` into `<project_path>` (a starter `app.py`, `Makefile`, `
 ```bash
 cd <project_path>
 make dep                      # install external dependencies via vcpkg
+make dep sbom                 # CycloneDX SBOM → <build_path>/security/sbom.cdx.json
 make                          # build all modules
 make m=base,app               # build specific modules
 make test=1                   # build + compile tests
@@ -45,12 +46,12 @@ make test m=app                # build + run tests
 | Guide | Covers |
 |-------|--------|
 | [docs/modules.md](docs/modules.md) | Module layout, `app.py` module config keys, platform/compiler variants, `scons.py` API, CLI reference |
-| [docs/dependencies.md](docs/dependencies.md) | Declaring and linking external libraries (vcpkg extlibs) |
+| [docs/dependencies.md](docs/dependencies.md) | Declaring and linking external libraries (vcpkg extlibs), license report, SBOM |
 | [docs/sbt-dependencies.md](docs/sbt-dependencies.md) | Using another SBT project as a build-time dependency |
 | [docs/cross-compilation.md](docs/cross-compilation.md) | Supported targets, toolchains, musl, vcpkg cross builds, running tests under qemu/wine |
 | [docs/android.md](docs/android.md) | Building Android APKs from modules, emulator targets, template overrides |
 | [docs/addon.md](docs/addon.md) | `site_scons/addon/` extension point: vcpkg config, overlay ports, custom triplets, custom Make targets |
-| [docs/distribution.md](docs/distribution.md) | `make install` and `make dist` (tar, apt, pacman, docker) |
+| [docs/distribution.md](docs/distribution.md) | `make install` and `make dist` (tar, apt, pacman, docker), embedding the SBOM in tar and apt |
 
 ## Requirements
 

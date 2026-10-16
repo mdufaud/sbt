@@ -87,7 +87,7 @@ make dist tar
 make dist tar m=app,base
 ```
 
-Produces `dist/<name>-<version>.tar.gz` containing `include/`, `lib/`, `bin/`, `etc/`, `share/`. Extlib headers/libs/bins are merged into the corresponding top-level directories.
+Produces `dist/<name>-<version>.tar.gz` containing `include/`, `lib/`, `bin/`, `etc/`, `share/`. Extlib headers/libs/bins are merged into the corresponding top-level directories. Adds `sbom.cdx.json` at the archive root when `make dep sbom` was run (warns otherwise).
 
 #### `apt` — Debian package
 
@@ -108,6 +108,7 @@ Layout inside the `.deb`:
 | `include/` | `/usr/include/` |
 | `lib/` | `/usr/lib/<multiarch-triplet>/` |
 | `share/` | `/usr/share/` |
+| `<build_path>/security/sbom.cdx.json` (if `make dep sbom` was run) | `/usr/share/doc/<name>/sbom.cdx.json` |
 | `etc/` | `/etc/` |
 
 The `DEBIAN/control` file is generated from `app.py` fields: `name`, `version`, `description`, `maintainers`, `architecture`, and optionally `priority`, `url`, `section`, `multi_architecture`. Package dependencies are resolved from the module extlib configuration mapped via `app.apt_packages`.

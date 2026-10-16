@@ -188,6 +188,12 @@ licenses: dep
 	$(QUIET) echo > /dev/null
 endif
 
+ifeq ($(MAKEARG_2), sbom)
+VCPKG_ACTION := sbom
+sbom: dep
+	$(QUIET) echo > /dev/null
+endif
+
 ifeq ($(MAKEARG_2), install)
 VCPKG_ACTION :=
 install: vcpkg_deploy
