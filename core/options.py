@@ -21,7 +21,7 @@ _SCONS_OWNED_ARGS = frozenset(["def"])
 from sbt.core import logger
 
 KNOWN_OPTIONS = frozenset([
-    "asan", "combined", "compile_commands", "compiler", "coverage", "cpu",
+    "asan", "combined", "compile_commands", "compile_time", "compiler", "coverage", "cpu",
     "cross_sysroot", "demo", "dist", "docker_builder_image",
     "docker_build_local", "docker_runtime_image", "env", "fgit", "fmod",
     "hwasan", "libc", "lsan", "m", "machine", "mode", "modules", "msan",

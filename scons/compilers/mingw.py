@@ -1,6 +1,8 @@
 from sbt.core import builder
+from sbt.scons import compilers
 
 def load_in_env(env):
+    compilers.apply_compile_time(env, "-ftime-report")
     prefix = "x86_64-w64-mingw32-"
     env.Replace(
         CC = prefix + "gcc",

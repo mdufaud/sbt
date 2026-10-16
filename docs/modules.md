@@ -537,6 +537,7 @@ Options are passed as `make <option>=<value>` (environment variables work too). 
 | `demo=1` | off | Build demo executables. |
 | `compile_commands=1` | **on** | Generate `compile_commands.json` (clangd) in the build directory. `compile_commands=0` to disable. |
 | `nocache=1` | off | Disable ccache for this build. |
+| `compile_time=1` | off | Report per compile unit at the end of the build: clang wall time and top headers (inclusive, from `-ftime-trace`), line count after preprocessing. Needs `compile_commands=1`. Adds `-ftime-trace` (clang, ndk, emscripten, filc) or `-ftime-report` (gcc, mingw, zig; output inline, no per-unit time). Toggling it rebuilds every unit once. ccache hits report no time. |
 | `v=1` / `verbose=1` | off | Verbose output. |
 | `cpu=` | `$CPU` | Target CPU for `-march=`/`-mcpu=` (e.g. `cortex-a72`, `x86-64-v3`). |
 | `triplet=` | auto | Override the vcpkg triplet used by `make dep`. |

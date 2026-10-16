@@ -1,6 +1,8 @@
 from sbt.core import builder
+from sbt.scons import compilers
 
 def load_in_env(env):
+    compilers.apply_compile_time(env, "-ftime-trace")
     # Fil-C is a clang fork shipping its own sysroot (the "pizfix": musl libc,
     # libc++/libc++abi and the libpizlo runtime). The driver locates it relative
     # to its own binary, so no --sysroot/--target is needed — and none is wanted:

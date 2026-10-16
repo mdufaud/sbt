@@ -167,6 +167,7 @@ def _build_zig_runtime(env, cmd_cxx):
 
 
 def load_in_env(env):
+    compilers.apply_compile_time(env, "-ftime-report")
     cmd_cc = "zig cc"
     cmd_cxx = "zig c++"
 

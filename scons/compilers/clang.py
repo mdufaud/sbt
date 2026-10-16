@@ -2,6 +2,7 @@ from sbt.core import builder
 from sbt.scons import compilers
 
 def load_in_env(env):
+    compilers.apply_compile_time(env, "-ftime-trace")
     if builder.is_cross_building():
         gnu_triplet = builder.get_gnu_triplet()
         env.Append(

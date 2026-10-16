@@ -1,5 +1,6 @@
 from sbt.core import builder
 from sbt.core import logger
+from sbt.scons import compilers
 import os
 import re
 
@@ -27,6 +28,7 @@ def _parse_emscripten_config(config_path):
     return config
 
 def load_in_env(env):
+    compilers.apply_compile_time(env, "-ftime-trace")
     env.Replace(
         CC = "emcc",
         CXX = "em++",

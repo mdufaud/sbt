@@ -3,6 +3,7 @@ from sbt.core import architectures
 from sbt.scons import compilers
 
 def load_in_env(env):
+    compilers.apply_compile_time(env, "-ftime-report")
     prefix = ""
     if builder.is_cross_building():
         prefix = architectures.get_gcc_prefix(builder.build_machine, builder.libc)

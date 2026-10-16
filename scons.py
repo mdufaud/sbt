@@ -32,6 +32,7 @@ from sbt.scons import state as scons_state
 from sbt.scons import context as scons_context
 from sbt.scons import env_factory
 from sbt.scons import env_methods
+from sbt.scons import compile_time as scons_compile_time
 
 app = loader.load_app()
 
@@ -552,6 +553,8 @@ def after_build():
     scons_utils.build_print_status(success, failures_message, build_start_time)
     if is_dry_run:
         return
+    if builder.is_compile_time() and compile_commands:
+        scons_compile_time.print_report(compilation_db_path)
     if success:
         scons_utils.build_print_built(
             build_state.generated_bins, build_state.generated_demos, build_state.generated_tests
