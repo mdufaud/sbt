@@ -35,6 +35,10 @@ C++ module interface units (`.cppm`) and builds that pass `cpp_modules=` skip
 the PCH: `-fmodules` and the PCH preload are not combined on one translation
 unit.
 
+A module opts out with the conf key `"pch": False` in `app.py` — for
+dependency trees whose headers are feature-macro hostile (python's pyconfig.h
+redefines the glibc feature macros the PCH preloads, fatal under `-Werror`).
+
 ## Instances
 
 One PCH instance is compiled per environment fingerprint — CXX, CXXFLAGS,

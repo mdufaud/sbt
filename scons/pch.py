@@ -70,9 +70,12 @@ def fingerprint(env):
 
 def inherit(env, conf, ctx):
     """Attach the registered PCH to a module env transitively depending on its
-    owner. Called for every module env right before the module scons.py runs."""
+    owner. Called for every module env right before the module scons.py runs.
+    A module opts out with conf key 'pch': False — for dependency trees whose
+    headers are feature-macro hostile (python's pyconfig.h redefines what the
+    preloaded glibc state already defines, dying under -Werror)."""
     reg = ctx.state.pch
-    if reg is None or conf["modname"] == reg["owner"]:
+    if reg is None or conf.get("pch") is False or conf["modname"] == reg["owner"]:
         return
     if not _depends_on_owner(ctx.build_modules, conf["modname"], reg["owner"]):
         return
