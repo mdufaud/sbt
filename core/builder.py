@@ -350,6 +350,9 @@ def is_coverage():
 def has_combined():
     return utils.is_opt("combined")
 
+def is_compile_time():
+    return utils.is_opt("compile_time")
+
 def do_distribution():
     return utils.get_opt("dist", "") != ""
 
@@ -528,6 +531,7 @@ build_export_path = join(build_path, "export")
 build_demo_path = join(build_path, "demo")
 build_obj_path = join(build_path, "obj")
 build_pch_path = join(build_path, "pch")
+build_security_path = join(build_path, "security")
 
 # SBT external project dependencies
 sbt_deps_path = join(build_root_path, ".sbt-deps")
@@ -626,12 +630,14 @@ def get_test_runner_env():
             wine_paths.extend(_mingw_runtime_dll_dirs())
             env.append("WINEPATH=" + ";".join(wine_paths))
     else:
-        # qemu dynamic-glibc needs the cross sysroot + lib search path; static-musl needs nothing
+        # QEMU_LD_PREFIX always on: it is the guest-visible "runs under qemu"
+        # signal (sihd's os::is_run_by_qemu) and a static guest loads nothing
+        # from it. QEMU_SET_ENV only matters when the guest loads shared libs.
+        # ask the compiler for its sysroot; layout varies (arm-none keeps libc under <prefix>/libc)
+        sysroot = probe_gcc_sysroot(build_machine, libc)
+        if sysroot:
+            env.append("QEMU_LD_PREFIX=" + abspath(sysroot))
         if not build_static_libs:
-            # ask the compiler for its sysroot; layout varies (arm-none keeps libc under <prefix>/libc)
-            sysroot = probe_gcc_sysroot(build_machine, libc)
-            if sysroot:
-                env.append("QEMU_LD_PREFIX=" + abspath(sysroot))
             env.append("QEMU_SET_ENV=LD_LIBRARY_PATH=" + ":".join([build_lib_path, build_extlib_lib_path]))
     return env
 
