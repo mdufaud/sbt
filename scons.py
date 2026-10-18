@@ -3,6 +3,7 @@ build_start_time = time()
 
 # careful: Rewrites time module import
 from SCons.Script import *
+EnsureSConsVersion(4, 11)
 
 if GetOption("help"):
     Return()

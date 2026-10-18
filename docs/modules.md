@@ -507,7 +507,7 @@ make def=MY_DEFINE=1           # Add preprocessor define
 | `info`, `conf [m=modules]` | Print active build settings or selected module configuration. |
 | `dump`, `jdump` | Print the `app.py` configuration as text or JSON. |
 | `path`, `targets` | Print the build path or list Make targets. |
-| `venv`, `setup` | Create `.venv/` or install SCons into it. |
+| `venv`, `setup` | Create `.venv/` or install SCons (>= 4.11) into it. |
 | `build_debug`, `build_dry` | Run SCons with diagnostics or as a dry run. |
 | `mod <module> [m=modules]` | Build the requested module and any additional modules from `m=` with their dependencies. |
 | `serve_bin`, `serve_demo` | Serve WebAssembly binaries or demos on `PORT` (default `8000`). |

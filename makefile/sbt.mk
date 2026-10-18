@@ -286,7 +286,7 @@ endif
 .PHONY: setup # Install scons in venv
 
 setup: venv
-	"$(if $(VIRTUAL_ENV),$(VIRTUAL_ENV)/bin/python,$(VENV_PATH)/bin/python)" -m pip install scons
+	"$(if $(VIRTUAL_ENV),$(VIRTUAL_ENV)/bin/python,$(VENV_PATH)/bin/python)" -m pip install 'scons>=4.11'
 
 ##################
 # Scons (builder)
