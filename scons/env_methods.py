@@ -41,7 +41,6 @@ Public API (methods available in module scons.py scripts):
 from glob import glob
 import json
 import os
-import shutil
 from os import path as os_path
 
 from SCons.Script import NoCache
@@ -169,9 +168,6 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     # ndk version, signing...) are not files, so record them in a fingerprint
     # used as a stage input: any change re-runs staging, whose content-sync
     # rewrites the staged project (and drops files made obsolete by the change).
-    # The fingerprint must exist as a real source file for SCons to see those
-    # changes, so it is written here (parse time) — but only when it actually
-    # changed, and never during a dry run.
     stage_config_fp = {
         "config": config,
         "name": name,
@@ -181,20 +177,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
         "gradle_cache_dir": gradle_cache_dir or "",
         "sign_config": sign_config or "",
     }
-    stage_fp_path = os_path.join(builder.build_path, "apk-staging", f"{sanitized_name}.stage.json")
-    fp_content = json.dumps(stage_config_fp, sort_keys=True, default=str)
-    if not ctx.is_dry_run:
-        os.makedirs(os_path.dirname(stage_fp_path), exist_ok=True)
-        try:
-            with open(stage_fp_path, "r") as fd:
-                changed = fd.read() != fp_content
-        except (OSError, UnicodeDecodeError):
-            changed = True
-        if changed:
-            with open(stage_fp_path, "w") as fd:
-                fd.write(fp_content)
-    if os.path.isfile(stage_fp_path):
-        stage_inputs.append(stage_fp_path)
+    stage_inputs.append(apk_env.Value(json.dumps(stage_config_fp, sort_keys=True, default=str)))
 
     stage_stamp = os_path.join(builder.build_path, "apk-staging", f"{sanitized_name}.stage.stamp")
 
@@ -209,7 +192,8 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
         # The stamp must carry content: SCons decides out-of-date-ness by
         # content, and an empty stamp would never mark the APK stale after a
         # config-only change (permissions, namespace, ndk version, signing).
-        shutil.copyfile(stage_fp_path, str(target[0]))
+        with open(str(target[0]), "wb") as fd:
+            fd.write(source[-1].get_contents())
 
     stage_cmd = apk_env.Command(stage_stamp, stage_inputs, _stage_apk)
 
