@@ -51,6 +51,7 @@ Global error report (severity=error only):
     <BUILD_PATH>/cppcheck/html/index.html           (requires cppcheck-htmlreport)
 """
 
+import json
 import os
 import sys
 import subprocess
@@ -264,11 +265,11 @@ def run_module(
     global_conf: dict,
     mod_conf: dict,
     have_html: bool,
-) -> int:
+) -> dict | None:
     src_dir = os.path.join(modules_dir, mod, "src")
     inc_dir = os.path.join(modules_dir, mod, "include")
     if not os.path.isdir(src_dir):
-        return 0
+        return None
 
     mod_dir = os.path.join(cppcheck_dir, mod)
     os.makedirs(mod_dir, exist_ok=True)
@@ -294,8 +295,13 @@ def run_module(
     except OSError:
         issues = 0
 
+    try:
+        errors = sum(1 for e in ET.parse(xml_out).getroot().iter("error") if e.get("severity") == "error")
+    except (OSError, ET.ParseError):
+        errors = 0
+
     if issues > 0:
-        logger.warning(f"Result: {issues} issue(s)")
+        logger.warning(f"Result: {issues} issue(s), {errors} error(s)")
     else:
         logger.info(f"Result: ok")
 
@@ -308,7 +314,38 @@ def run_module(
             stderr=subprocess.DEVNULL,
         )
 
-    return rc
+    return {"errors": errors, "issues": issues, "rc": rc, "report": xml_out}
+
+
+def write_summary(cppcheck_dir: str, results: dict, threshold: int | None, rc: int) -> None:
+    errors = sum(r["errors"] for r in results.values())
+    issues = sum(r["issues"] for r in results.values())
+    status = "failed" if rc != 0 else "passed"
+    summary = {
+        "modules": results,
+        "errors": errors,
+        "issues": issues,
+        "threshold": threshold,
+        "status": status,
+    }
+    with open(os.path.join(cppcheck_dir, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not step_summary:
+        return
+    lines = ["## cppcheck", "", "| module | errors | issues |", "| --- | ---: | ---: |"]
+    lines += [f"| {mod} | {r['errors']} | {r['issues']} |" for mod, r in results.items()]
+    lines += [
+        f"| **total** | **{errors}** | **{issues}** |",
+        "",
+        f"threshold: {'unset' if threshold is None else threshold}",
+        "",
+        f"status: **{status}**",
+        "",
+    ]
+    with open(step_summary, "a") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def generate_global_report(
@@ -370,11 +407,13 @@ def run(
         modules_dir = builder.build_modules_path
         app_modules: dict = sbt_modules.get_module_merged_with_conditionals(app)
         global_cppcheck: dict = getattr(app, "cppcheck", {})
+        fail_under: int | None = getattr(app, "cppcheck_fail_under", None)
     except Exception as exc:
         logger.warning(f"could not load app.py: {exc} — running without per-module config")
         modules_dir = project_root
         app_modules = {}
         global_cppcheck = {}
+        fail_under = None
 
     if not modules:
         modules = sorted(
@@ -387,19 +426,31 @@ def run(
 
     rc = 0
     ran: list[str] = []
+    results: dict[str, dict] = {}
 
     for mod in modules:
         mod_conf = app_modules.get(mod, {})
         if mod_conf.get("cppcheck-skip", False):
             logger.info(f"skipping module: {mod} (cppcheck-skip)")
             continue
-        ret = run_module(mod, modules_dir, cppcheck_dir, global_cppcheck, mod_conf, have_html)
-        if ret != 0:
-            rc = ret
+        res = run_module(mod, modules_dir, cppcheck_dir, global_cppcheck, mod_conf, have_html)
+        if res is not None:
+            results[mod] = res
+            if res["rc"] != 0:
+                rc = res["rc"]
         ran.append(mod)
 
     generate_global_report(ran, cppcheck_dir, project_root, have_html)
     print_reports(ran, cppcheck_dir, have_html)
+
+    if fail_under is not None:
+        errors = sum(r["errors"] for r in results.values())
+        rc = 1 if errors > fail_under else 0
+        if rc:
+            logger.error(f"cppcheck failed: {errors} error(s) > cppcheck_fail_under={fail_under}")
+        else:
+            logger.info(f"cppcheck passed: {errors} error(s) <= cppcheck_fail_under={fail_under}")
+    write_summary(cppcheck_dir, results, fail_under, rc)
 
     return rc
 

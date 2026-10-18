@@ -76,18 +76,29 @@ for mod in $MODULES; do
         "$obj_dir"
 done
 
+PYBIN="${PYTHON_BIN:-python3}"
+REPORT_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/coverage_report.py"
+SBT_ENV_JSON="$BUILD_PATH/sbt_env.json"
+mapfile -t gcovr_gate < <("$PYBIN" "$REPORT_HELPER" gate-args "$SBT_ENV_JSON")
+
 # Global report
+rc=0
 gcovr \
     --gcov-ignore-errors=no_working_dir_found \
     --cobertura  "$COVERAGE_DIR/coverage.xml" \
     --html       "$COVERAGE_DIR/index.html" \
+    --json-summary-pretty \
+    --json-summary "$COVERAGE_DIR/summary.json" \
     --root       "$PROJECT_ROOT_PATH" \
     --exclude    '.*/test/.*' \
     --exclude    '.*/demo/.*' \
     --exclude-unreachable-branches \
     --print-summary \
+    "${gcovr_gate[@]}" \
     "${gcovr_filter[@]}" \
-    "${gcovr_search[@]}"
+    "${gcovr_search[@]}" || rc=$?
+
+"$PYBIN" "$REPORT_HELPER" step-summary "$SBT_ENV_JSON" "$COVERAGE_DIR/summary.json" "$rc"
 
 # Print clickable report links
 echo ""
@@ -97,3 +108,9 @@ for mod in $MODULES; do
     mod_index="$COVERAGE_DIR/$mod/src/index.html"
     [ -f "$mod_index" ] && echo "  - $mod: $mod_index"
 done
+echo "- summary: $COVERAGE_DIR/summary.json"
+
+if [ "$rc" -ne 0 ]; then
+    echo "Coverage below threshold (${gcovr_gate[*]})" >&2
+    exit "$rc"
+fi

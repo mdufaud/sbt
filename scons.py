@@ -544,6 +544,17 @@ def after_build():
     scons_utils.build_print_status(success, failures_message, build_start_time)
     if is_dry_run:
         return
+    if build_state.module_times:
+        logger.info("module build times:")
+        width = max(len(name) for name in build_state.module_times)
+        for name, (start, end) in build_state.module_times.items():
+            if start is None:
+                took = "up to date"
+            elif end is None:
+                took = "not finished"
+            else:
+                took = "{:.3f} sec".format(end - start)
+            logger.info("  {}  {}".format(name.ljust(width), took))
     if builder.is_compile_time() and compile_commands:
         scons_compile_time.print_report(compilation_db_path)
     if success:

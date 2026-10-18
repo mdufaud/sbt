@@ -502,6 +502,11 @@ make compiler=clang            # Use clang
 make def=MY_DEFINE=1           # Add preprocessor define
 ```
 
+Every build ends with `module build times`: per module, the span from its first compile
+to its last link (`up to date` when nothing ran, `not finished` when the build stopped
+first). With `-j`, module spans overlap; the total `build succeeded (took ...)` also
+counts configuration time.
+
 #### Make targets
 
 | Target | Purpose |
@@ -587,7 +592,17 @@ make coverage=1                # Build with --coverage instrumentation
 make covtest m=base            # Build + run tests + emit coverage.xml (Cobertura) + coverage.html
 ```
 
-Requires `gcovr` (`pip install gcovr`). Output files are written to `<build_path>/coverage/coverage.xml` and `<build_path>/coverage/index.html`.
+Requires `gcovr` (`pip install gcovr`). Output files are written to `<build_path>/coverage/coverage.xml`, `<build_path>/coverage/index.html` and `<build_path>/coverage/summary.json` (gcovr `--json-summary`: line, branch and function totals and percents).
+
+Coverage gates, in `app.py` (unset = no gate):
+
+```python
+gcov_fail_under = 80          # minimum line coverage percent (gcovr --fail-under-line)
+gcov_fail_under_branch = 60   # minimum branch coverage percent (gcovr --fail-under-branch)
+```
+
+Below a threshold, `make covtest` exits non-zero after writing every report. When
+`GITHUB_STEP_SUMMARY` is set (GitHub Actions), a coverage table is appended to it.
 
 #### Static analysis (cppcheck)
 
@@ -622,7 +637,15 @@ modules = {
 }
 ```
 
-`unusedFunction` and `missingInclude` warnings are suppressed by default. Reports land in `<build_path>/cppcheck/<module>/` (`report.xml`, `stdout.txt`, `html/` when `cppcheck-htmlreport` is installed) plus a merged errors-only `<build_path>/cppcheck/errors.xml`.
+`unusedFunction` and `missingInclude` warnings are suppressed by default. Reports land in `<build_path>/cppcheck/<module>/` (`report.xml`, `stdout.txt`, `html/` when `cppcheck-htmlreport` is installed) plus a merged errors-only `<build_path>/cppcheck/errors.xml` and `<build_path>/cppcheck/summary.json` (`{ "modules": { <module>: { "errors", "issues", "rc", "report" } }, "errors", "issues", "threshold", "status" }`; `errors` counts `severity="error"` findings, `issues` every finding).
+
+By default `make cppcheck` fails on any finding (`--error-exitcode=1`). To gate on errors only:
+
+```python
+cppcheck_fail_under = 0   # max severity="error" findings tolerated; warnings/style no longer fail
+```
+
+When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a per-module table is appended to it.
 
 ### Testing
 
@@ -674,15 +697,29 @@ The same facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`,
 
 #### Machine-readable reports
 
-Besides the colored console recap, each run writes:
+Each run ends with a `TEST RESULTS` recap, printed after the failure details: every test
+with its status (`OK`, `FAILED`, `SKIPPED`) and duration, grouped by module, then the
+totals and the list of failed tests (colored on a terminal only). It is read from the gtest
+XML reports, so it needs them (see `TEST_REPORT_FLAGS` below); a module without a report
+shows its exit code. With `repeat=N`, gtest reports the last iteration only.
+
+Each run also writes, even when tests fail:
 
 - `<build_path>/test/reports/<app>_<module>.xml` — one gtest XML per module
   (`--gtest_output=xml:$REPORT_DIR/`, the engine default assigned through
   `TEST_REPORT_FLAGS`; set it empty to disable or to another flag — from the env, an
-  app/addon `.env` export, or a custom profile — to change it).
-- `<build_path>/test/summary.json` — `{ "app", "modules": { <module>: { "exit_code",
-  "report", "log" } } }`, written even when tests fail. Post-process it (upload, gate,
-  badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
+  app/addon `.env` export, or a custom profile — to change it). `test_module_reports =
+  False` in `app.py` deletes them once merged.
+- `<build_path>/test/report.xml` — all module reports merged into one JUnit-style
+  `<testsuites>` (suites prefixed with `<module>.`), for CI test-report viewers.
+- `<build_path>/test/summary.json` — `{ "app", "status", "report", "tests": { "total",
+  "passed", "failed", "skipped", "time" }, "failed_tests": [ { "module", "test" } ],
+  "modules": { <module>: { "exit_code", "status", "report", "log", "tests",
+  "failed_tests" } } }`. `tests` is `null` for a module without a report. Post-process it
+  (upload, gate, badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
+
+When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a markdown table of modules and the
+failed tests is appended to it.
 
 `make test ls` lists the tests of each module and exits non-zero when no test binary was
 built.

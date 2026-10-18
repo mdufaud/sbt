@@ -111,13 +111,20 @@ print_failures()
     fi
 )
 
-# summary.json: module -> exit code + report/log paths (written even on failure)
+# summary.json + merged report.xml + console recap (written even on failure)
 write_summary()
 {
+    local failed_modules=""
+    for module in $module_list;
+    do
+        if module_failed "${module}"; then
+            failed_modules="${failed_modules} ${module}"
+        fi
+    done
     # the test env's PYTHONHOME serves the bindings' embedded interpreter; the
     # host python must resolve its own stdlib
-    env -u PYTHONHOME "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
-        "$TEST_PATH" "$APP_NAME" $module_list > "${TEST_PATH}/summary.json"
+    env -u PYTHONHOME FAILED_MODULES="${failed_modules}" "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
+        "$TEST_PATH" "$APP_NAME" $module_list
 }
 
 execute_tests()
@@ -159,6 +166,7 @@ execute_tests()
         echo ""
 
         mkdir -p "${log_dir}/${module}"
+        rm -f "${REPORT_DIR}/${APP_NAME}_${module}.xml"
         if [ -n "$brief_args" ]; then
             # brief: write everything to the log only, no live console output;
             # failures are printed at the end by print_failures
@@ -170,8 +178,10 @@ execute_tests()
         fi
     done
 
-    write_summary
     print_failures
+    local rc=$?
+    write_summary
+    return $rc
 )
 
 list_tests()

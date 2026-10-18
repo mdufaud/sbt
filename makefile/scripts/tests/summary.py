@@ -1,35 +1,209 @@
-"""Write the test-run summary as JSON on stdout.
+"""Write the test-run summary and print the end-of-run recap.
 
 Usage: summary.py TEST_PATH APP_NAME [module ...]
-Exit codes come from TEST_PATH/logs/<module>/exit_code; the gtest xml report
-path is included only when the file exists.
+Env: FAILED_MODULES (modules the executor flagged: exit code or sanitizer),
+TEST_MODULE_REPORTS (0 drops per-module gtest xml once merged),
+GITHUB_STEP_SUMMARY (markdown recap appended when set).
+Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml).
 """
 import json
 import os
 import sys
+import xml.etree.ElementTree as ET
+
+
+def read_exit_code(log_dir):
+    try:
+        with open(os.path.join(log_dir, "exit_code")) as f:
+            return int(f.read().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def case_status(case):
+    if case.find("failure") is not None or case.find("error") is not None:
+        return "failed"
+    if case.find("skipped") is not None or case.get("result") in ("skipped", "suppressed") \
+            or case.get("status") == "notrun":
+        return "skipped"
+    return "passed"
+
+
+def parse_report(path):
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return None, None
+    cases = []
+    for case in root.iter("testcase"):
+        cases.append({
+            "name": "{}.{}".format(case.get("classname", ""), case.get("name", "")),
+            "time": float(case.get("time") or 0),
+            "status": case_status(case),
+        })
+    return root, cases
+
+
+def count(cases):
+    return {
+        "total": len(cases),
+        "passed": sum(1 for c in cases if c["status"] == "passed"),
+        "failed": sum(1 for c in cases if c["status"] == "failed"),
+        "skipped": sum(1 for c in cases if c["status"] == "skipped"),
+        "time": round(sum(c["time"] for c in cases), 3),
+    }
+
+
+def write_merged(path, app_name, suites, totals):
+    root = ET.Element("testsuites", {
+        "name": app_name,
+        "tests": str(totals["total"]),
+        "failures": str(totals["failed"]),
+        "skipped": str(totals["skipped"]),
+        "errors": "0",
+        "time": "{:.3f}".format(totals["time"]),
+    })
+    root.extend(suites)
+    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+class Colors:
+    def __init__(self, enabled):
+        self.red = "\033[0;31m" if enabled else ""
+        self.green = "\033[0;32m" if enabled else ""
+        self.yellow = "\033[0;33m" if enabled else ""
+        self.reset = "\033[0m" if enabled else ""
+
+
+def print_recap(modules, totals, failed_tests):
+    c = Colors(sys.stdout.isatty())
+    label = {
+        "passed": c.green + "OK     " + c.reset,
+        "failed": c.red + "FAILED " + c.reset,
+        "skipped": c.yellow + "SKIPPED" + c.reset,
+    }
+    print("")
+    print("==================== TEST RESULTS ====================")
+    for module, info in modules.items():
+        color = c.red if info["status"] == "failed" else c.green
+        if info["tests"] is None:
+            print("{}{}{}: no report (exit {})".format(color, module, c.reset, info["exit_code"]))
+            continue
+        t = info["tests"]
+        print("{}{}{}: {} tests, {} failed, {:.3f} s".format(
+            color, module, c.reset, t["total"], t["failed"], t["time"]))
+        for case in info["cases"]:
+            print("  {} {:8.3f} s  {}".format(label[case["status"]], case["time"], case["name"]))
+    print("------------------------------------------------------")
+    color = c.red if totals["failed"] or failed_tests else c.green
+    print("{}total: {} tests, {} passed, {} failed, {} skipped, {:.3f} s{}".format(
+        color, totals["total"], totals["passed"], totals["failed"], totals["skipped"],
+        totals["time"], c.reset))
+    if failed_tests:
+        print("failed:")
+        width = max(len(f["module"]) for f in failed_tests)
+        for f in failed_tests:
+            print("  {}{:<{}}  {}{}".format(c.red, f["module"], width, f["test"], c.reset))
+    print("======================================================")
+
+
+def write_step_summary(path, app_name, modules, totals, failed_tests):
+    lines = [
+        "## Tests: {}".format(app_name),
+        "",
+        "| Module | Status | Tests | Failed | Skipped | Time (s) |",
+        "|---|---|---|---|---|---|",
+    ]
+    for module, info in modules.items():
+        t = info["tests"]
+        if t is None:
+            lines.append("| {} | {} | - | - | - | - |".format(module, info["status"]))
+        else:
+            lines.append("| {} | {} | {} | {} | {} | {:.3f} |".format(
+                module, info["status"], t["total"], t["failed"], t["skipped"], t["time"]))
+    lines += [
+        "",
+        "**Total**: {} tests, {} passed, {} failed, {} skipped, {:.3f} s".format(
+            totals["total"], totals["passed"], totals["failed"], totals["skipped"], totals["time"]),
+    ]
+    if failed_tests:
+        lines += ["", "### Failed tests", ""]
+        lines += ["- `{}` {}".format(f["module"], f["test"]) for f in failed_tests]
+    with open(path, "a") as f:
+        f.write("\n".join(lines) + "\n\n")
 
 
 def main():
     test_path, app_name = sys.argv[1], sys.argv[2]
-    summary = {"app": app_name, "modules": {}}
-    for module in sys.argv[3:]:
+    module_list = sys.argv[3:]
+    flagged = set(os.environ.get("FAILED_MODULES", "").split())
+    keep_module_reports = os.environ.get("TEST_MODULE_REPORTS", "1") != "0"
+
+    modules = {}
+    suites = []
+    all_cases = []
+    failed_tests = []
+    parsed_reports = []
+    for module in module_list:
         log_dir = os.path.join(test_path, "logs", module)
-        exit_code = None
-        exit_log = os.path.join(log_dir, "exit_code")
-        if os.path.isfile(exit_log):
-            try:
-                with open(exit_log) as f:
-                    exit_code = int(f.read().strip())
-            except (ValueError, OSError):
-                exit_code = None
+        log = os.path.join(log_dir, "output.log")
+        exit_code = read_exit_code(log_dir)
         report = os.path.join(test_path, "reports", "{}_{}.xml".format(app_name, module))
-        summary["modules"][module] = {
+        root, cases = parse_report(report)
+        failed = module in flagged or exit_code != 0
+        modules[module] = {
             "exit_code": exit_code,
+            "status": "failed" if failed else "passed",
             "report": report if os.path.isfile(report) else None,
-            "log": os.path.join(log_dir, "output.log"),
+            "log": log,
+            "tests": count(cases) if cases is not None else None,
+            "cases": cases or [],
         }
-    json.dump(summary, sys.stdout, indent=4)
-    print()
+        if root is not None:
+            parsed_reports.append(report)
+            for suite in root.iter("testsuite"):
+                suite.set("name", "{}.{}".format(module, suite.get("name", "")))
+                suites.append(suite)
+            all_cases += cases
+        failed_names = [case["name"] for case in cases or [] if case["status"] == "failed"]
+        failed_tests += [{"module": module, "test": name} for name in failed_names]
+        if failed and not failed_names:
+            failed_tests.append({"module": module, "test": "(module failed, see {})".format(log)})
+
+    totals = count(all_cases)
+    merged = os.path.join(test_path, "report.xml")
+    if suites:
+        write_merged(merged, app_name, suites, totals)
+        if not keep_module_reports:
+            for report in parsed_reports:
+                os.remove(report)
+            for info in modules.values():
+                info["report"] = None
+    elif os.path.isfile(merged):
+        os.remove(merged)
+
+    summary = {
+        "app": app_name,
+        "status": "failed" if failed_tests else "passed",
+        "report": merged if suites else None,
+        "tests": totals,
+        "failed_tests": failed_tests,
+        "modules": {
+            m: {k: v for k, v in info.items() if k != "cases"} | {
+                "failed_tests": [c["name"] for c in info["cases"] if c["status"] == "failed"],
+            }
+            for m, info in modules.items()
+        },
+    }
+    with open(os.path.join(test_path, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=4)
+        f.write("\n")
+
+    if modules:
+        print_recap(modules, totals, failed_tests)
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary and modules:
+        write_step_summary(step_summary, app_name, modules, totals, failed_tests)
 
 
 if __name__ == "__main__":

@@ -9,52 +9,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYBIN="${PYTHON_BIN:-python3}"
 
-test_path="$($PYBIN -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["build_path"]+"/"+d["paths"]["test"])' "$SBT_ENV_JSON")"
+test_path="$("$PYBIN" "$SCRIPT_DIR/write_env.py" "$SBT_ENV_JSON")"
 env_file="$test_path/.env"
-mkdir -p "$test_path"
-
-# Whole .env in one pass: fixed paths, then runner env, then app test env.
-# Add a var = add one ex(...) call; values shell-quoted via shlex.
-$PYBIN - "$SBT_ENV_JSON" > "$env_file" <<'PYEOF'
-import json, shlex, sys
-
-d = json.load(open(sys.argv[1]))
-
-def ex(key, value):
-    print("export {}={}".format(key, shlex.quote(str(value))))
-
-b = d["build_path"]
-p = d["paths"]
-ex("APP_NAME", d["app_name"])
-ex("PROJECT_ROOT_PATH", d["root_path"])
-ex("MODULES_PATH", d["modules_path"])
-ex("BUILD_PATH", b)
-ex("LIB_PATH", b + "/" + p["lib"])
-ex("BIN_PATH", b + "/" + p["bin"])
-ex("ETC_PATH", b + "/" + p["etc"])
-ex("SHARE_PATH", b + "/" + p["share"])
-ex("EXTLIB_PATH", b + "/" + p["extlib"])
-ex("EXTLIB_LIB_PATH", b + "/" + p["extlib_lib"])
-ex("TEST_PATH", b + "/" + p["test"])
-ex("TEST_BIN_PATH", b + "/" + p["test_bin"])
-ex("EXPORT_PATH", b + "/" + p["export"])
-ex("TEST_RUNNER", d["test"]["runner"])
-ex("TEST_BIN_EXT", d["test"]["bin_ext"])
-# platform facts — exported before the app/addon env below so it can override
-bld = d["build"]
-ex("SBT_PLATFORM", bld["platform"])
-ex("SBT_MACHINE", bld["machine"])
-ex("SBT_LIBC", bld["libc"])
-ex("SBT_MODE", bld["mode"])
-ex("SBT_COMPILER", bld["compiler"])
-ex("SBT_TRIPLET", bld["triplet"])
-ex("SBT_LIBS_TYPE", bld["libs_type"])
-ex("SBT_CROSS", 1 if bld["cross"] else 0)
-ex("PYTHON_BIN", sys.executable)
-for mapping in ("env", "command"):
-    for key, value in (d["test"].get(mapping) or {}).items():
-        ex(key, value)
-PYEOF
 
 cp "$SCRIPT_DIR/executor.sh" "$test_path/execute_tests.sh"
 chmod +x "$test_path/execute_tests.sh"

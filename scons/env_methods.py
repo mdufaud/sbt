@@ -39,11 +39,12 @@ Public API (methods available in module scons.py scripts):
 """
 
 from glob import glob
+import time
 import json
 import os
 from os import path as os_path
 
-from SCons.Script import NoCache
+from SCons.Script import Action, NoCache
 
 from sbt.core import builder
 from sbt.core import logger
@@ -58,6 +59,26 @@ from sbt.scons import pch as scons_pch
 ###############################################################################
 # Private helpers
 ###############################################################################
+
+def _track_time(env, result, ctx, objects=None):
+    times = ctx.state.module_times.setdefault(env['APP_MODULE_NAME'], [None, None])
+
+    def _start(target, source, env):
+        now = time.time()
+        if times[0] is None or now < times[0]:
+            times[0] = now
+
+    def _end(target, source, env):
+        now = time.time()
+        if times[1] is None or now > times[1]:
+            times[1] = now
+
+    final = scons_utils.as_list(result)
+    if objects is None:
+        objects = [src for node in final for src in node.sources]
+    env.AddPreAction(scons_utils.as_list(objects) + final, Action(_start, None))
+    env.AddPostAction(final, Action(_end, None))
+
 
 def _origin_rpath_flags(env, artifact_dir):
     """$ORIGIN-relative -rpath flags so an artifact in *artifact_dir* finds its libs.
@@ -346,6 +367,7 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
             lib_env.Append(LINKFLAGS=["-static-libstdc++"])
         lib = NoCache(lib_env.SharedLibrary(lib_path, objects, **build_kwargs))
 
+    _track_time(self, lib, ctx, objects)
     ctx.state.add_targets(src)
     ctx.state.add_generated("lib", ctx.state.generated_libs, module_name, name, lib_path)
 
@@ -387,8 +409,10 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     if cpp_mods or bin_env.get("PCH"):
         objects = scons_cpp_modules.build_objects(bin_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         result = bin_env.Program(bin_path, objects, **build_kwargs)
+        _track_time(self, result, ctx, objects)
     else:
         result = bin_env.Program(bin_path, src, **build_kwargs)
+        _track_time(self, result, ctx)
 
     ctx.state.add_targets(src)
     ctx.state.add_generated("bin", ctx.state.generated_bins, module_name, name, bin_path)
@@ -442,8 +466,10 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
     if cpp_mods or test_env.get("PCH"):
         objects = scons_cpp_modules.build_objects(test_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         test = test_env.Program(test_path, objects, **build_kwargs)
+        _track_time(self, test, ctx, objects)
     else:
         test = test_env.Program(test_path, src, **build_kwargs)
+        _track_time(self, test, ctx)
 
     ctx.state.add_targets(src)
     ctx.state.add_generated("test", ctx.state.generated_tests, module_name, name, test_path)
@@ -489,8 +515,10 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
     if cpp_mods or demo_env.get("PCH"):
         objects = scons_cpp_modules.build_objects(demo_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         demo = demo_env.Program(demo_path, objects, **build_kwargs)
+        _track_time(self, demo, ctx, objects)
     else:
         demo = demo_env.Program(demo_path, src, **build_kwargs)
+        _track_time(self, demo, ctx)
 
     ctx.state.add_targets(src)
     ctx.state.add_generated("demo", ctx.state.generated_demos, module_name, name, demo_path)

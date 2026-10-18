@@ -102,6 +102,11 @@ def _build_env():
             "runner_env": _runner_env(),
             "env": _test_env(app),
             "command": _test_command(app),
+            "module_reports": bool(getattr(app, "test_module_reports", True)),
+        },
+        "coverage": {
+            "fail_under": getattr(app, "gcov_fail_under", None),
+            "fail_under_branch": getattr(app, "gcov_fail_under_branch", None),
         },
     }
 
