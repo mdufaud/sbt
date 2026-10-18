@@ -485,6 +485,8 @@ build/<machine>-<platform>-<libc>/<compiler>-<version>/<mode>/<static|dynamic>/
 
 `build/last` symlinks to the most recent build.
 
+Resources in `etc/`, `include/` and `share/` are copied incrementally: after deleting a source file, run `make clean` to drop its stale copy from `build/`.
+
 ## CLI reference
 
 ```bash
