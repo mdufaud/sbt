@@ -95,17 +95,6 @@ def parse_config_command(env, *configs):
                 else:
                     os.environ[k] = v
 
-# def __do_copy(src, dst, *, follow_symlinks=True):
-#     do_copy = True
-#     if os.path.isfile(dst):
-#         src_mtime = os.path.getmtime(src)
-#         dst_mtime = os.path.getmtime(dst)
-#         if dst_mtime > src_mtime:
-#             do_copy = False
-#     if do_copy:
-#         return shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
-#     return dst
-
 def install_module_res_into_build(env, module_name, src, dst, must_exist = True):
     """Register build-time Install nodes copying MODNAME/SRC into build/DST.
 
