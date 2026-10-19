@@ -39,6 +39,7 @@ make                          # build all modules
 make m=base,app               # build specific modules
 make test=1                   # build + compile tests
 make test m=app                # build + run tests
+make test jtest=4              # run each gtest binary as 4 concurrent shards
 ```
 
 ## Documentation
