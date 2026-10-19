@@ -118,8 +118,8 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose):
                 color, module, width, c.reset, info["exit_code"]))
             continue
         t = info["tests"]
-        print("{}{:<{}}{}  {:>5} tests  {:>4} failed  {:>8.3f} s".format(
-            color, module, width, c.reset, t["total"], t["failed"], t["time"]))
+        print("{}{:<{}}{}  {:>5} tests  {:>4} skipped  {:>4} failed  {:>8.3f} s".format(
+            color, module, width, c.reset, t["total"], t["skipped"], t["failed"], t["time"]))
         for case in info["cases"]:
             if verbose or case["status"] != "passed":
                 print("  {} {:8.3f} s  {}".format(label[case["status"]], case["time"], case["name"]))
