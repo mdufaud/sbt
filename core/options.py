@@ -4,8 +4,9 @@ The names here are exactly those the python side reads through
 utils.get_opt()/utils.is_opt() — the single source of truth for validation:
 - the builder warns once on any argv `name=value` option nobody reads
   (catches typos like `platfrm=linux`),
-- `validate()` checks the value of every option that has a checker (None =
-  free text); an option added here is checked by registering its checker,
+- `validate()` checks the value of every option that has a checker in
+  _CHECKERS (None = free text); an option added here is checked by registering
+  its checker,
 - `makevars` emits the names to make (SBT_FWD_CORE), which forwards each one
   with its resolved make value — an option added here is forwarded without
   touching the makefiles.
@@ -73,7 +74,7 @@ _FREE_OPTIONS = (
     "ANDROID_SDK_PATH", "FILC_PATH", "JAVA_HOME",
 )
 
-KNOWN_OPTIONS = {
+_CHECKERS = {
     **dict.fromkeys(_BOOL_OPTIONS, _bool),
     **dict.fromkeys(_FREE_OPTIONS, None),
     "compiler": _choice(architectures.COMPILERS, lower=True),
@@ -82,6 +83,8 @@ KNOWN_OPTIONS = {
     "machine": _machine,
     "platform": _platform,
 }
+
+KNOWN_OPTIONS = frozenset(_CHECKERS)
 
 _LOCAL_OPTIONS = {
     "brief": _bool,
@@ -111,7 +114,7 @@ def validate():
     Empty values count as unset. Call after the app is loaded: machines an app
     registers are valid values."""
     errors = []
-    for name, check in {**KNOWN_OPTIONS, **_LOCAL_OPTIONS}.items():
+    for name, check in {**_CHECKERS, **_LOCAL_OPTIONS}.items():
         value = utils.get_opt(name)
         expected = check(value) if check and value else None
         if expected:

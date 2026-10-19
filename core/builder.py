@@ -684,6 +684,8 @@ cpp_modules_compiler_major = int((_detect_compiler_major_version(build_compiler,
 cpp_modules_backend = _detect_cpp_modules_backend()
 is_cpp_modules = cpp_modules_backend is not None
 
+allowed_compilers = architectures.COMPILERS
+
 def get_android_sdk_root():
     """Get Android SDK root path."""
     return utils.get_opt("ANDROID_SDK_PATH", "")
@@ -740,13 +742,19 @@ def _check_unsupported_sanitizers(compiler_label):
             ok = False
     return ok
 
+def verify_options():
+    errors = options.validate()
+    for error in errors:
+        logger.error("invalid option " + error)
+    return not errors
+
 def verify_args(app):
     ret = True
     if is_msys() and not is_msys_mingw():
         logger.error("msys2 supported for mingw64 only")
         ret = False
-    for error in options.validate():
-        logger.error("invalid option " + error)
+    if build_compiler not in allowed_compilers:
+        logger.error("compiler {} is not supported".format(build_compiler))
         ret = False
     app_modes = getattr(app, "modes", None)
     if app_modes is not None and build_mode not in app_modes:

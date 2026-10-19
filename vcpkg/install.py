@@ -59,7 +59,7 @@ addon_triplet_path = os.path.join(sbt_vcpkg_addon_path, "triplets")
 
 gen_overlay_path = os.path.join(vcpkg_build_path, "gen-overlay-ports")
 
-if builder.verify_args(app) == False:
+if builder.verify_args(app) == False or builder.verify_options() == False:
     exit(1)
 
 modules_to_build = builder.get_modules()

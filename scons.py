@@ -40,7 +40,7 @@ app = loader.load_app()
 logger.info("building {}".format(app.name))
 logger.info("building to: {}".format(builder.build_path))
 
-if builder.verify_args(app) == False:
+if builder.verify_args(app) == False or builder.verify_options() == False:
     Exit(1)
 
 ###############################################################################
