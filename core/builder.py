@@ -601,7 +601,7 @@ def _mingw_runtime_dll_dirs():
         pass
     gcc_path = shutil.which("x86_64-w64-mingw32-gcc")
     if gcc_path:
-        toolchain_prefix = dirname(dirname(gcc_path))
+        toolchain_prefix = dirname(dirname(os.path.realpath(gcc_path)))
         candidates.append(join(toolchain_prefix, "x86_64-w64-mingw32", "bin"))
     dirs = []
     for d in candidates:
