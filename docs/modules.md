@@ -703,7 +703,7 @@ The same facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`,
 
 Each run ends with a `TEST RESULTS` recap, printed after the failure details: one line per
 module (tests, failures, duration) followed by its `FAILED` and `SKIPPED` tests with their
-duration, then the totals and the list of failed tests (colored on a terminal only).
+duration, then the totals and the lists of failed and skipped tests (colored on a terminal only).
 `v=1` / `verbose=1` also lists the passed tests (`OK`). It is read from the gtest
 XML reports, so it needs them (see `TEST_REPORT_FLAGS` below); a module without a report
 shows its exit code. With `repeat=N`, gtest reports the last iteration only.
@@ -719,12 +719,12 @@ Each run also writes, even when tests fail:
   `<testsuites>` (suites prefixed with `<module>.`), for CI test-report viewers.
 - `<build_path>/test/summary.json` — `{ "app", "status", "report", "tests": { "total",
   "passed", "failed", "skipped", "time" }, "failed_tests": [ { "module", "test" } ],
-  "modules": { <module>: { "exit_code", "status", "report", "log", "tests",
+  "skipped_tests": [ { "module", "test" } ], "modules": { <module>: { "exit_code", "status", "report", "log", "tests",
   "failed_tests" } } }`. `tests` is `null` for a module without a report. Post-process it
   (upload, gate, badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
 
 When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a markdown table of modules and the
-failed tests is appended to it.
+failed and skipped tests is appended to it.
 
 `make test ls` lists the tests of each module and exits non-zero when no test binary was
 built.

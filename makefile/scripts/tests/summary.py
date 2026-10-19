@@ -101,7 +101,7 @@ class Colors:
         self.reset = "\033[0m" if enabled else ""
 
 
-def print_recap(modules, totals, failed_tests, verbose):
+def print_recap(modules, totals, failed_tests, skipped_tests, verbose):
     c = Colors(sys.stdout.isatty())
     label = {
         "passed": c.green + "OK     " + c.reset,
@@ -133,10 +133,15 @@ def print_recap(modules, totals, failed_tests, verbose):
         width = max(len(f["module"]) for f in failed_tests)
         for f in failed_tests:
             print("  {}{:<{}}  {}{}".format(c.red, f["module"], width, f["test"], c.reset))
+    if skipped_tests:
+        print("skipped:")
+        width = max(len(s["module"]) for s in skipped_tests)
+        for s in skipped_tests:
+            print("  {}{:<{}}  {}{}".format(c.yellow, s["module"], width, s["test"], c.reset))
     print("======================================================")
 
 
-def write_step_summary(path, app_name, modules, totals, failed_tests):
+def write_step_summary(path, app_name, modules, totals, failed_tests, skipped_tests):
     lines = [
         "## Tests: {}".format(app_name),
         "",
@@ -158,6 +163,9 @@ def write_step_summary(path, app_name, modules, totals, failed_tests):
     if failed_tests:
         lines += ["", "### Failed tests", ""]
         lines += ["- `{}` {}".format(f["module"], f["test"]) for f in failed_tests]
+    if skipped_tests:
+        lines += ["", "### Skipped tests", ""]
+        lines += ["- `{}` {}".format(s["module"], s["test"]) for s in skipped_tests]
     with open(path, "a") as f:
         f.write("\n".join(lines) + "\n\n")
 
@@ -172,6 +180,7 @@ def main():
     suites = []
     all_cases = []
     failed_tests = []
+    skipped_tests = []
     parsed_reports = []
     for module in module_list:
         log_dir = os.path.join(test_path, "logs", module)
@@ -197,6 +206,8 @@ def main():
             all_cases += cases
         failed_names = [case["name"] for case in cases or [] if case["status"] == "failed"]
         failed_tests += [{"module": module, "test": name} for name in failed_names]
+        skipped_tests += [{"module": module, "test": case["name"]}
+                          for case in cases or [] if case["status"] == "skipped"]
         if failed and not failed_names:
             failed_tests.append({"module": module, "test": "(module failed, see {})".format(log)})
 
@@ -218,6 +229,7 @@ def main():
         "report": merged if suites else None,
         "tests": totals,
         "failed_tests": failed_tests,
+        "skipped_tests": skipped_tests,
         "modules": {
             m: {k: v for k, v in info.items() if k != "cases"} | {
                 "failed_tests": [c["name"] for c in info["cases"] if c["status"] == "failed"],
@@ -230,10 +242,10 @@ def main():
         f.write("\n")
 
     if modules:
-        print_recap(modules, totals, failed_tests, os.environ.get("VERBOSE", "0") not in ("", "0"))
+        print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0") not in ("", "0"))
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary and modules:
-        write_step_summary(step_summary, app_name, modules, totals, failed_tests)
+        write_step_summary(step_summary, app_name, modules, totals, failed_tests, skipped_tests)
 
 
 if __name__ == "__main__":
