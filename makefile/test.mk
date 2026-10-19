@@ -93,6 +93,7 @@ test: build
 					REPEAT="$(repeat)" \
 					JTEST="$(jtest)" \
 					BRIEF="$(brief)" \
+					VERBOSE="$(or $(verbose),$(v))" \
 					ASAN_OPTIONS="$(if $(TEST_RUNNER),,$(ASAN_OPTIONS))" \
 					UBSAN_OPTIONS="$(if $(TEST_RUNNER),,$(UBSAN_OPTIONS))" \
 					TSAN_OPTIONS="$(if $(TEST_RUNNER),,$(TSAN_OPTIONS))" \

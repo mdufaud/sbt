@@ -701,9 +701,10 @@ The same facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`,
 
 #### Machine-readable reports
 
-Each run ends with a `TEST RESULTS` recap, printed after the failure details: every test
-with its status (`OK`, `FAILED`, `SKIPPED`) and duration, grouped by module, then the
-totals and the list of failed tests (colored on a terminal only). It is read from the gtest
+Each run ends with a `TEST RESULTS` recap, printed after the failure details: one line per
+module (tests, failures, duration) followed by its `FAILED` and `SKIPPED` tests with their
+duration, then the totals and the list of failed tests (colored on a terminal only).
+`v=1` / `verbose=1` also lists the passed tests (`OK`). It is read from the gtest
 XML reports, so it needs them (see `TEST_REPORT_FLAGS` below); a module without a report
 shows its exit code. With `repeat=N`, gtest reports the last iteration only.
 

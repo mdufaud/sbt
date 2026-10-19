@@ -3,6 +3,7 @@
 Usage: summary.py TEST_PATH APP_NAME [module ...]
 Env: FAILED_MODULES (modules the executor flagged: exit code or sanitizer),
 TEST_MODULE_REPORTS (0 drops per-module gtest xml once merged),
+VERBOSE (non-zero lists passed tests in the recap too),
 GITHUB_STEP_SUMMARY (markdown recap appended when set).
 Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml).
 """
@@ -100,25 +101,28 @@ class Colors:
         self.reset = "\033[0m" if enabled else ""
 
 
-def print_recap(modules, totals, failed_tests):
+def print_recap(modules, totals, failed_tests, verbose):
     c = Colors(sys.stdout.isatty())
     label = {
         "passed": c.green + "OK     " + c.reset,
         "failed": c.red + "FAILED " + c.reset,
         "skipped": c.yellow + "SKIPPED" + c.reset,
     }
+    width = max(len(module) for module in modules)
     print("")
     print("==================== TEST RESULTS ====================")
     for module, info in modules.items():
         color = c.red if info["status"] == "failed" else c.green
         if info["tests"] is None:
-            print("{}{}{}: no report (exit {})".format(color, module, c.reset, info["exit_code"]))
+            print("{}{:<{}}{}  no report (exit {})".format(
+                color, module, width, c.reset, info["exit_code"]))
             continue
         t = info["tests"]
-        print("{}{}{}: {} tests, {} failed, {:.3f} s".format(
-            color, module, c.reset, t["total"], t["failed"], t["time"]))
+        print("{}{:<{}}{}  {:>5} tests  {:>4} failed  {:>8.3f} s".format(
+            color, module, width, c.reset, t["total"], t["failed"], t["time"]))
         for case in info["cases"]:
-            print("  {} {:8.3f} s  {}".format(label[case["status"]], case["time"], case["name"]))
+            if verbose or case["status"] != "passed":
+                print("  {} {:8.3f} s  {}".format(label[case["status"]], case["time"], case["name"]))
     print("------------------------------------------------------")
     color = c.red if totals["failed"] or failed_tests else c.green
     print("{}total: {} tests, {} passed, {} failed, {} skipped, {:.3f} s{}".format(
@@ -226,7 +230,7 @@ def main():
         f.write("\n")
 
     if modules:
-        print_recap(modules, totals, failed_tests)
+        print_recap(modules, totals, failed_tests, os.environ.get("VERBOSE", "0") not in ("", "0"))
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary and modules:
         write_step_summary(step_summary, app_name, modules, totals, failed_tests)
