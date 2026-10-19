@@ -230,7 +230,6 @@ execute_tests()
 
         wrapper="$TEST_WRAPPER"
         if [ -n "$perf_wrapper" ]; then
-            rm -f "$perf_dir/$module".data "$perf_dir/$module".*.data "$perf_dir/$module".perf.txt "$perf_dir/$module".*.perf.txt
             # one data file per shard: perf cannot merge them
             # perf blocks SIGWINCH and ignores SIGUSR2 in its workload: restore the defaults
             wrapper="$perf_wrapper -o $perf_dir/$module$([ "$shards" -gt 1 ] && echo @SHARD@).data -- env --default-signal"
@@ -257,6 +256,7 @@ execute_tests()
 
         mkdir -p "${log_dir}/${module}"
         rm -f "${REPORT_DIR}/${APP_NAME}_${module}.xml"
+        rm -f "$perf_dir/$module".data "$perf_dir/$module".*.data "$perf_dir/$module".perf.txt "$perf_dir/$module".*.perf.txt
         if [ "$shards" -gt 1 ]; then
             run_sharded "$module" "$module_path" "$cmd" "$report_args"
             if [ -z "$brief_args" ]; then
@@ -276,6 +276,7 @@ execute_tests()
             perf_report "$module"
         fi
     done
+    rmdir "$perf_dir" 2>/dev/null
 
     print_failures
     local rc=$?

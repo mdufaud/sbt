@@ -659,7 +659,7 @@ make test m=script fmod=client      # Build client too, but run ONLY script's te
 make test m=script fmod=all         # Build every module, run ONLY script's tests
 make valtest                        # Tests with valgrind
 make lvaltest                       # Tests with valgrind leak checking
-make tracetest                      # Tests with strace
+make ttest                          # Tests with strace
 make asantest / make iasantest      # Tests with ASan (+ non-interactive)
 make ubsantest / make iubsantest    # Tests with UBSan
 make tsantest / make itsantest      # Tests with TSan
@@ -739,6 +739,8 @@ and as `slowest` in `summary.json`. Per module it writes, in `<build_path>/test/
 
 - `<module>.data` — the raw recording, for `perf report -i` / `perf annotate` / `perf script`.
 - `<module>.perf.txt` — `perf report --stdio` text, symbols above 1%.
+
+Each run first removes the previous `perf/` files of the modules it runs, with or without `perf`.
 
 Needs `perf` (not installed by `make dep`). An optimized build is advised
 (`mode=release`): a `-O0` profile is misleading.
