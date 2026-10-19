@@ -4,6 +4,7 @@ vcpkg cross-compilation helpers: meson/cmake cross toolchains, overlay triplets
 wrapper that hides host .pc files from cross builds.
 """
 
+import filecmp
 import os
 import platform
 import shutil
@@ -34,6 +35,33 @@ def _first_existing(paths: list[str]) -> str | None:
         if os.path.isfile(path):
             return path
     return None
+
+
+def stage_toolchains(overlay_dir: str, sbt_toolchains_path: str, addon_toolchains_path: str | None = None) -> None:
+    """
+    Copy the toolchain files (addon over sbt) into overlay_dir/toolchains so the generated
+    triplets and toolchains reference them through ${CMAKE_CURRENT_LIST_DIR}. vcpkg hashes
+    the triplet/toolchain text into the binary cache key: an absolute checkout path in it
+    gives every git worktree its own cache and rebuilds all cross dependencies.
+    """
+    staged = os.path.join(overlay_dir, "toolchains")
+    for root in (sbt_toolchains_path, addon_toolchains_path):
+        if not (root and os.path.isdir(root)):
+            continue
+        for dirpath, _, filenames in os.walk(root):
+            for name in filenames:
+                src = os.path.join(dirpath, name)
+                _copy_if_changed(src, os.path.join(staged, os.path.relpath(src, root)))
+
+
+def _copy_if_changed(src: str, dst: str) -> None:
+    """Replace dst atomically, and only when it differs: a concurrent run never sees a truncated wrapper."""
+    if os.path.isfile(dst) and filecmp.cmp(src, dst, shallow=False):
+        return
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    tmp = f"{dst}.{os.getpid()}.tmp"
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
 
 
 def _resolve_compiler_wrapper(
@@ -77,6 +105,25 @@ def _resolve_compiler_wrapper(
     return None
 
 
+def _base_triplet_lines(triplet_path: str, vcpkg_root: str) -> list[str]:
+    """
+    Lines pulling in the base triplet. vcpkg's own triplets are include()d by their absolute
+    path (identical on every checkout); sbt/addon ones are pasted in, so that their content
+    is part of the triplet text vcpkg hashes and a checkout path never appears in it.
+    """
+    if os.path.abspath(triplet_path).startswith(os.path.abspath(vcpkg_root) + os.sep):
+        return [f'include("{_posix(triplet_path)}")']
+    with open(triplet_path, "r") as f:
+        return f.read().rstrip("\n").split("\n")
+
+
+def _staged_wrapper(wrapper_path: str | None) -> str | None:
+    """Path of a resolved wrapper as seen from the generated toolchain, once staged by stage_toolchains."""
+    if wrapper_path is None:
+        return None
+    return "${CMAKE_CURRENT_LIST_DIR}/toolchains/wrappers/" + os.path.basename(wrapper_path)
+
+
 def generate_cmake_cross_toolchain(
         overlay_dir: str,
         vcpkg_bin_path: str,
@@ -105,9 +152,9 @@ def generate_cmake_cross_toolchain(
 
     # Pin cross tools before including linux.cmake so they take precedence.
     if gcc_prefix:
-        c_compiler = _resolve_compiler_wrapper("cc", sbt_toolchains_path, addon_toolchains_path) \
+        c_compiler = _staged_wrapper(_resolve_compiler_wrapper("cc", sbt_toolchains_path, addon_toolchains_path)) \
             or f"{gcc_prefix}gcc"
-        cxx_compiler = _resolve_compiler_wrapper("cxx", sbt_toolchains_path, addon_toolchains_path) \
+        cxx_compiler = _staged_wrapper(_resolve_compiler_wrapper("cxx", sbt_toolchains_path, addon_toolchains_path)) \
             or f"{gcc_prefix}g++"
         lines.append(f'set(CMAKE_C_COMPILER "{c_compiler}")')
         lines.append(f'set(CMAKE_CXX_COMPILER "{cxx_compiler}")')
@@ -200,6 +247,12 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
     overlay_dir = os.path.join(vcpkg_build_path, "overlay-triplets")
     os.makedirs(overlay_dir, exist_ok=True)
 
+    sbt_toolchains_path = os.path.join(os.path.dirname(sbt_triplet_path), "toolchains")
+    addon_toolchains_path = (os.path.join(os.path.dirname(addon_triplet_path), "toolchains")
+                             if addon_triplet_path else None)
+    if is_dynamic or is_cross_linux:
+        stage_toolchains(overlay_dir, sbt_toolchains_path, addon_toolchains_path)
+
     if is_dynamic:
         dynamic_path = triplets.generate_dynamic_triplet(overlay_dir, vcpkg_triplet)
         if dynamic_path is None:
@@ -222,7 +275,7 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
         if orig_triplet is None:
             logger.warning(f"cannot find original triplet file for '{vcpkg_triplet}', skipping overlay generation")
             return None
-        lines = ["# Auto-generated overlay triplet", f'include("{orig_triplet}")', ""]
+        lines = ["# Auto-generated overlay triplet", *_base_triplet_lines(orig_triplet, vcpkg_root), ""]
 
     # vcpkg requires VCPKG_C_FLAGS and VCPKG_CXX_FLAGS to be set together.
     if need_flags:
@@ -241,7 +294,9 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
         # Expose vcpkg-installed cross headers so meson cc.has_header() checks
         # (e.g. libcap's sys/capability.h) find them. Via flags so both cmake and
         # meson packages pick them up.
-        vcpkg_installed_inc = _posix(os.path.join(vcpkg_build_path, "vcpkg_installed", vcpkg_triplet, "include"))
+        # Normalized (no "..") so ports replacing CURRENT_INSTALLED_DIR in their output still match it.
+        lines.append('get_filename_component(SBT_VCPKG_BUILD_DIR "${CMAKE_CURRENT_LIST_DIR}" DIRECTORY)')
+        vcpkg_installed_inc = f"${{SBT_VCPKG_BUILD_DIR}}/vcpkg_installed/{vcpkg_triplet}/include"
         lines.append(f'string(APPEND VCPKG_C_FLAGS " -I{vcpkg_installed_inc}")')
         lines.append(f'string(APPEND VCPKG_CXX_FLAGS " -I{vcpkg_installed_inc}")')
         lines.append("")
@@ -255,14 +310,12 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
         # triplet; overwriting VCPKG_CHAINLOAD_TOOLCHAIN_FILE with the gcc cross
         # toolchain would drop them back onto the host compiler.
         if not is_zig and not is_filc:
-            sbt_toolchains_path = os.path.join(os.path.dirname(sbt_triplet_path), "toolchains")
-            addon_toolchains_path = (os.path.join(os.path.dirname(addon_triplet_path), "toolchains")
-                                     if addon_triplet_path else None)
             cmake_toolchain_path = generate_cmake_cross_toolchain(
                 overlay_dir, vcpkg_bin_path, sbt_toolchains_path, addon_toolchains_path,
             )
             if cmake_toolchain_path:
-                lines.append(f'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "{_posix(cmake_toolchain_path)}")')
+                toolchain_name = os.path.basename(cmake_toolchain_path)
+                lines.append(f'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${{CMAKE_CURRENT_LIST_DIR}}/{toolchain_name}")')
                 lines.append("")
 
     if is_android:

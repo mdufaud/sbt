@@ -292,6 +292,11 @@ Generated in `build/<path>/vcpkg/overlay-triplets/`. It wraps the original tripl
 - Cross meson file (for ports using meson, e.g., dbus)
 - Per-port cmake options
 
+vcpkg hashes the triplet and toolchain text into its binary-cache key, so the generated files must not
+contain the checkout or build path: otherwise every git worktree rebuilds all cross dependencies. Paths
+are written as `${CMAKE_CURRENT_LIST_DIR}` and the sbt/addon toolchains are copied to
+`overlay-triplets/toolchains/`; sbt/addon base triplets are pasted into the overlay instead of included.
+
 ### Gotcha: VCPKG_CXX_FLAGS vs VCPKG_CMAKE_CONFIGURE_OPTIONS
 
 `VCPKG_CXX_FLAGS` is injected by vcpkg's own toolchains (`scripts/toolchains/linux.cmake`). But:

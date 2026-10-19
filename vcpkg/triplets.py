@@ -225,8 +225,6 @@ def generate_zig_triplet_content(machine: str, linkage: str) -> str:
     if not zig_target:
         raise RuntimeError(f"no zig target for machine '{machine}'")
 
-    zig_toolchain_path = os.path.join(builder.sbt_path, "vcpkg", "toolchains", "zig-toolchain.cmake").replace("\\", "/")
-
     c_flags = f"-target {zig_target}"
     if zig_flags:
         c_flags += f" {zig_flags}"
@@ -243,7 +241,7 @@ def generate_zig_triplet_content(machine: str, linkage: str) -> str:
         f'set(ARCH_TARGET "{zig_target}")',
         f'set(CMAKE_C_FLAGS "{c_flags}" CACHE STRING "" FORCE)',
         f'set(CMAKE_CXX_FLAGS "{c_flags}" CACHE STRING "" FORCE)',
-        f'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "{zig_toolchain_path}")',
+        'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/toolchains/zig-toolchain.cmake")',
     ]
 
     return "\n".join(lines) + "\n"
@@ -256,10 +254,6 @@ def generate_filc_triplet_content(linkage: str) -> str:
     Chains filc-toolchain.cmake, which reads FILC_PATH from the environment
     (exported by vcpkg/install.py).
     """
-    filc_toolchain_path = os.path.join(
-        builder.sbt_path, "vcpkg", "toolchains", "filc-toolchain.cmake"
-    ).replace("\\", "/")
-
     lines = [
         f"# Auto-generated Fil-C triplet ({linkage})",
         "set(CMAKE_SYSTEM_PROCESSOR x86_64)",
@@ -269,7 +263,7 @@ def generate_filc_triplet_content(linkage: str) -> str:
         "set(VCPKG_CMAKE_SYSTEM_NAME Linux)",
         'set(CMAKE_C_FLAGS "-fPIC" CACHE STRING "" FORCE)',
         'set(CMAKE_CXX_FLAGS "-fPIC" CACHE STRING "" FORCE)',
-        f'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "{filc_toolchain_path}")',
+        'set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/toolchains/filc-toolchain.cmake")',
     ]
 
     return "\n".join(lines) + "\n"
