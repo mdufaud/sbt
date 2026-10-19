@@ -740,7 +740,7 @@ and as `slowest` in `summary.json`. Per module it writes, in `<build_path>/test/
 - `<module>.data` — the raw recording, for `perf report -i` / `perf annotate` / `perf script`.
 - `<module>.perf.txt` — `perf report --stdio` text, symbols above 1%.
 
-Each run first removes the previous `perf/` files of the modules it runs, with or without `perf`.
+`make perftest` empties `perf/` before recording; the other test goals leave it alone.
 
 Needs `perf` (not installed by `make dep`). An optimized build is advised
 (`mode=release`): a `-O0` profile is misleading.

@@ -155,6 +155,7 @@ setup_perf()
         echo "error: perf not found, install it to use perftest" >&2
         return 1
     fi
+    rm -rf "$perf_dir"
     mkdir -p "$perf_dir"
     perf_wrapper="perf record -q -F 499 --user-callchains --call-graph dwarf"
 }
@@ -256,7 +257,6 @@ execute_tests()
 
         mkdir -p "${log_dir}/${module}"
         rm -f "${REPORT_DIR}/${APP_NAME}_${module}.xml"
-        rm -f "$perf_dir/$module".data "$perf_dir/$module".*.data "$perf_dir/$module".perf.txt "$perf_dir/$module".*.perf.txt
         if [ "$shards" -gt 1 ]; then
             run_sharded "$module" "$module_path" "$cmd" "$report_args"
             if [ -z "$brief_args" ]; then
@@ -276,7 +276,6 @@ execute_tests()
             perf_report "$module"
         fi
     done
-    rmdir "$perf_dir" 2>/dev/null
 
     print_failures
     local rc=$?
