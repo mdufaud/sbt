@@ -188,9 +188,10 @@ execute_tests()
         fi
 
         brief_args=
-        if [ ! -z "$BRIEF" ] && [ "$BRIEF" != "0" ]; then
-            brief_args="$TEST_BRIEF_FLAGS"
-        fi
+        case "$BRIEF" in
+            ""|0|[Ff][Aa][Ll][Ss][Ee]) ;;
+            *) brief_args="$TEST_BRIEF_FLAGS" ;;
+        esac
 
         report_args=
         if [ ! -z "${TEST_REPORT_FLAGS:-}" ]; then

@@ -237,7 +237,7 @@ def main():
         f.write("\n")
 
     if modules:
-        print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0") not in ("", "0"))
+        print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0").casefold() not in ("", "0", "false"))
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary and modules:
         write_step_summary(step_summary, app_name, modules, totals, failed_tests, skipped_tests)

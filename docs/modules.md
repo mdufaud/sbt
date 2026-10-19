@@ -534,6 +534,8 @@ used by Make to resolve configuration and paths.
 
 Options are passed as `make <option>=<value>` (environment variables work too). Cross-compilation options (`machine=`, `platform=`, `libc=`, `compiler=`) are detailed in [cross-compilation.md](cross-compilation.md), `test=`/`demo=` targets in the [Testing](#testing) section below.
 
+Values are checked before anything runs (`make` stops with `invalid option values: ...`): flags (`static`, `asan`, `test`, `demo`, `brief`, ...) accept `0`, `1`, `true` or `false`; `j`, `jtest` and `repeat` an integer >= 1; `SBT_LOCK_TIMEOUT` an integer >= 0; `PORT` 1-65535; `compiler`, `platform`, `machine`, `libc` and `dist` the values of [cross-compilation.md](cross-compilation.md) and of this table. Empty means unset.
+
 | Option | Default | Effect |
 |--------|---------|--------|
 | `m=` / `modules=` | all | Build only the listed modules (plus their dependencies). See [`m=` vs `fmod=`](#m-vs-fmod). |

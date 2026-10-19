@@ -187,6 +187,9 @@ def _makevars():
     assignments like `test: test=1` reach scons) without naming options.
     """
     env = _build_env()
+    errors = sbt_options.validate()
+    if errors:
+        raise SystemExit("invalid option values: " + "; ".join(errors))
     lines = [
         "PLATFORM := {}".format(env["build"]["platform"]),
         "MACHINE := {}".format(env["build"]["machine"]),
