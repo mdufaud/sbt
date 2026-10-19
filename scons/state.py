@@ -30,6 +30,7 @@ class BuildState:
         # Precompiled header support
         self.pch_backends = {}           # CXX command -> ('gcc' | 'clang', version) | None
         self.pch_headers = {}            # header module -> {"node", "flag", "tokens", "module"}
+        self.pch_test_headers = {}       # header module -> same, for test binaries
         self.pch_unsupported_logged = False
 
         # Git repositories cloned during the build

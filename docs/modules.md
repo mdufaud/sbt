@@ -256,7 +256,9 @@ env.build_test(
 
 This does three things:
 
-1. enables the active compiler backend for module consumption,
+1. enables the active compiler backend for module consumption; on a bin, test or
+   demo only the sources holding an `import` line get it, the others keep the
+   precompiled header,
 2. wires SCons dependencies so imported interfaces are compiled first,
 3. links the interface object together with the importer target.
 

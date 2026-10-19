@@ -76,10 +76,11 @@ def compat_tokens(env):
     return sorted(tokens)
 
 
-def build_header(env, src, ctx):
+def build_header(env, src, ctx, test=False):
     """Compile *src* into a precompiled header owned by this module and
-    register it for the modules listing this one in their 'depends'. Returns
-    the artifact node, or None when the compiler has no PCH support."""
+    register it for the modules listing this one in their 'depends', or for
+    their test binaries when *test*. Returns the artifact node, or None when
+    the compiler has no PCH support."""
     from SCons.Tool import CScanner
 
     probe = backend(env, ctx)
@@ -94,7 +95,9 @@ def build_header(env, src, ctx):
     # the artifact, and the action text alone does not change with it
     instance_dir = hashlib.sha256((env.subst("$CXX") + version).encode()).hexdigest()[:12]
     pch_dir = os_path.join(builder.build_pch_path, modname, instance_dir)
-    anchor_copy = env.File(os_path.join(pch_dir, "pch.hpp"))
+    # anchors sit side by side under their own names: a test anchor includes the main one
+    anchor_name = os_path.basename(str(src))
+    anchor_copy = env.File(os_path.join(pch_dir, anchor_name))
     copy_node = env.Command(anchor_copy, env.File(src), _copy_action)[0]
     compile_cmd = "$CXX -o $TARGET -c $CXXFLAGS $CCFLAGS $_CCCOMCOM -x c++-header -MD -MF ${TARGET.abspath}.d $SOURCE"
     if kind == "gcc":
@@ -103,13 +106,17 @@ def build_header(env, src, ctx):
         artifact = env.File(str(anchor_copy) + ".gch")
         flag = ["-include", str(anchor_copy)]
     else:
-        artifact = env.File(os_path.join(pch_dir, "pch.pch"))
+        artifact = env.File(os_path.join(pch_dir, os_path.splitext(anchor_name)[0] + ".pch"))
         flag = ["-include-pch", str(artifact), _CLANG_VALIDATE]
         compile_cmd += " " + _CLANG_VALIDATE
     node = env.Command(artifact, copy_node, compile_cmd, source_scanner=CScanner)[0]
     _track_includes(env, node)
-    ctx.state.pch_headers[modname] = {"node": node, "flag": flag, "tokens": compat_tokens(env), "module": modname}
-    logger.info("pch: header module '{}' ({}) compiled".format(modname, kind))
+    registry = ctx.state.pch_test_headers if test else ctx.state.pch_headers
+    if test and modname in ctx.state.pch_headers:
+        # gcc would read the main .gch while it is still being written
+        env.Depends(node, ctx.state.pch_headers[modname]["node"])
+    registry[modname] = {"node": node, "flag": flag, "tokens": compat_tokens(env), "module": modname}
+    logger.info("pch: header module '{}' ({}) compiled{}".format(modname, kind, " for tests" if test else ""))
     return node
 
 
@@ -129,6 +136,20 @@ def consume(env, dep, ctx):
     for token in header["flag"]:
         env.AppendUnique(CXXFLAGS=[token])
     _patch_ccache(env["ENV"])
+
+
+def use_test_header(env, ctx):
+    """Swap the header *env* consumes for the test header of the same header
+    module, when that module built one."""
+    current = env.get("PCH")
+    if current is None:
+        return
+    header = ctx.state.pch_test_headers.get(current["module"])
+    if header is None:
+        return
+    env["CXXFLAGS"] = [f for f in env["CXXFLAGS"] if f not in current["flag"]]
+    env["PCH"] = header
+    env.Append(CXXFLAGS=header["flag"])
 
 
 def verify(env):
@@ -155,7 +176,7 @@ def strip(env):
     instance = env.get("PCH")
     if instance is None:
         return
-    logger.info("pch: module '{}' compiles C++ modules, header module '{}' skipped".format(
+    logger.info("pch: C++ module units of '{}' skip header module '{}'".format(
         env.get("APP_MODULE_NAME"), instance["module"]))
     env["CXXFLAGS"] = [f for f in env["CXXFLAGS"] if f not in instance["flag"]]
     del env["PCH"]

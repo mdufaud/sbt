@@ -13,7 +13,7 @@ Public API (methods available in module scons.py scripts):
   # static_libs: True (wrap all LIBS, requires .a files) or list[str] (wrap named libs only)
   env.build_demos(srcs, **kwargs)
   env.build_cpp_modules(src, **kwargs)
-  env.build_header(src)
+  env.build_header(src, test=False)
   env.export_test(includes=[], resources=[])
   env.copy_into_build(src, dst)
   env.file_basename(path)
@@ -398,16 +398,13 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
         _wrap_libs_static(bin_env, static_libs)
 
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
-    if cpp_mods:
-        scons_cpp_modules.enable(bin_env, ctx)
-        scons_pch.strip(bin_env)
 
     _apply_bin_linkflags(self, bin_env, builder.build_bin_path)
 
     name += ctx.bin_ext
     bin_path = os_path.join(builder.build_bin_path, name)
     if cpp_mods or bin_env.get("PCH"):
-        objects = scons_cpp_modules.build_objects(bin_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
+        objects = scons_cpp_modules.build_split_objects(bin_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         result = bin_env.Program(bin_path, objects, **build_kwargs)
         _track_time(self, result, ctx, objects)
     else:
@@ -417,6 +414,12 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     ctx.state.add_targets(src)
     ctx.state.add_generated("bin", ctx.state.generated_bins, module_name, name, bin_path)
     return result
+
+
+def _add_test_app_conf(env, ctx):
+    scons_utils.add_env_app_conf(ctx.app, env, "test")
+    for app_conf in ctx.default_app_conf_to_get:
+        scons_utils.add_env_app_conf(ctx.app, env, "test", app_conf)
 
 
 def _build_test(self, src, name, libs, ctx, **kwargs):
@@ -442,13 +445,8 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
             )
     scons_utils.prepend_unique_paths(test_env, "CPPPATH", exported_test_cpppaths)
 
-    scons_utils.add_env_app_conf(ctx.app, test_env, "test")
-    for app_conf in ctx.default_app_conf_to_get:
-        scons_utils.add_env_app_conf(ctx.app, test_env, "test", app_conf)
-
-    if cpp_mods:
-        scons_cpp_modules.enable(test_env, ctx)
-        scons_pch.strip(test_env)
+    _add_test_app_conf(test_env, ctx)
+    scons_pch.use_test_header(test_env, ctx)
     scons_pch.verify(test_env)
 
     if static_libs:
@@ -464,7 +462,7 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
     test_path = os_path.join(builder.build_test_path, "bin", name)
 
     if cpp_mods or test_env.get("PCH"):
-        objects = scons_cpp_modules.build_objects(test_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
+        objects = scons_cpp_modules.build_split_objects(test_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         test = test_env.Program(test_path, objects, **build_kwargs)
         _track_time(self, test, ctx, objects)
     else:
@@ -500,9 +498,6 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
     for app_conf in ctx.default_app_conf_to_get:
         scons_utils.add_env_app_conf(ctx.app, demo_env, "demo", app_conf)
 
-    if cpp_mods:
-        scons_cpp_modules.enable(demo_env, ctx)
-        scons_pch.strip(demo_env)
     scons_pch.verify(demo_env)
 
     if static_libs:
@@ -513,7 +508,7 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
     name += ctx.bin_ext
     demo_path = os_path.join(builder.build_demo_path, name)
     if cpp_mods or demo_env.get("PCH"):
-        objects = scons_cpp_modules.build_objects(demo_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
+        objects = scons_cpp_modules.build_split_objects(demo_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         demo = demo_env.Program(demo_path, objects, **build_kwargs)
         _track_time(self, demo, ctx, objects)
     else:
@@ -531,10 +526,17 @@ def _build_demos(self, srcs, **kwargs):
         self.build_demo(src, name=name, **kwargs)
 
 
-def _build_header(self, src, ctx):
+def _build_header(self, src, ctx, test=False):
     """Compile *src* into a precompiled header owned by this module. Modules
-    listing this one in their own 'depends' consume it (see docs/pch.md)."""
-    return scons_pch.build_header(self, src, ctx)
+    listing this one in their own 'depends' consume it; with *test*, only their
+    test binaries do, and only when tests are built (see docs/pch.md)."""
+    if not test:
+        return scons_pch.build_header(self, src, ctx)
+    if not builder.build_tests:
+        return None
+    test_env = self.Clone()
+    _add_test_app_conf(test_env, ctx)
+    return scons_pch.build_header(test_env, src, ctx, test=True)
 
 
 def _build_cpp_modules_method(self, src, ctx, **kwargs):
@@ -748,8 +750,8 @@ def register_methods(base_env, ctx):
     def build_cpp_modules(self, src, **kwargs):
         return _build_cpp_modules_method(self, src, ctx, **kwargs)
 
-    def build_header(self, src):
-        return _build_header(self, src, ctx)
+    def build_header(self, src, test=False):
+        return _build_header(self, src, ctx, test=test)
 
     def export_test(self, includes=[], resources=[]):
         return _export_test(self, includes, resources, ctx)

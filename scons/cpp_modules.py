@@ -10,6 +10,7 @@ from os import path as os_path
 
 from sbt.core import builder
 from sbt.build import cpp_module_parse as build_cpp_modules
+from sbt.scons import pch as scons_pch
 from sbt.scons import utils as scons_utils
 
 
@@ -123,3 +124,19 @@ def build_objects(env, src, ctx, shared=False, cpp_modules=[], **kwargs):
         if pch:
             env.Depends(objects, pch["node"])
     return objects + prebuilt
+
+
+def build_split_objects(env, src, ctx, cpp_modules=[], **kwargs):
+    """Compile *src* like build_objects, enabling the C++ module flags only on
+    the sources that import a module. Those also drop the precompiled header;
+    every other source keeps *env* untouched, precompiled header included."""
+    if not cpp_modules:
+        return build_objects(env, src, ctx, **kwargs)
+    sources, prebuilt = split_inputs(env, src)
+    importing = [s for s in sources if build_cpp_modules.imports_module(env.File(s).srcnode().abspath)]
+    plain = [s for s in sources if s not in importing]
+    module_env = env.Clone()
+    enable(module_env, ctx)
+    scons_pch.strip(module_env)
+    return (build_objects(module_env, importing, ctx, cpp_modules=cpp_modules, **kwargs)
+            + build_objects(env, plain, ctx, **kwargs) + prebuilt)

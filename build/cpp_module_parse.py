@@ -11,6 +11,12 @@ def parse_module_name(path):
                 return m.group(1)
     raise RuntimeError(f"unable to determine C++ module name from: {path}")
 
+_import_re = re.compile(r'^\s*(?:export\s+)?import\s+[A-Za-z_<"]')
+
+def imports_module(path):
+    with open(path, 'r', encoding='utf-8') as fd:
+        return any(_import_re.match(line) for line in fd)
+
 def resolve_source_path(module_dir, source):
     source_path = str(source)
     if os.path.isabs(source_path):

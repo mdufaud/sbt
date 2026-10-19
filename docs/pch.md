@@ -39,6 +39,28 @@ No source change is needed: the compiler injects the header ahead of every C++
 translation unit of the consumer (`-include`, or `-include-pch` with clang).
 Plain `#include`s of the same headers in sources stay valid and become cheap.
 
+## Test header
+
+The same header module can compile a second header for test binaries, with the
+test framework and other test-only headers on top of the main one:
+
+```python
+env.build_header('src/pch.hpp')
+env.build_header('src/pch_test.hpp', test=True)
+```
+
+```cpp
+// src/pch_test.hpp
+#include "pch.hpp"
+#include <gtest/gtest.h>
+```
+
+It is compiled only when tests are built (`test=1`), with the test app conf
+applied (`test_flags`, ...). The test binaries of every consumer then preload it
+instead of the main header; libraries, binaries and demos keep the main one.
+Anchors are copied side by side under their own file names, so the test anchor
+includes the main one by name. Without a test header, tests use the main one.
+
 ## Flag compatibility
 
 The header is built with the header module's own flags. A consumer must compile
@@ -70,9 +92,10 @@ stripped first since ccache answers `--version` itself. `zig` and `emscripten`
 have no PCH support: `build_header` logs an info line and the build proceeds
 without it.
 
-C++ module interface units (`.cppm`) and builds that pass `cpp_modules=` skip
-the PCH: `-fmodules` and the PCH preload are not combined on one translation
-unit.
+C++ module interface units (`.cppm`) skip the PCH, and so do the sources of a
+bin, test or demo passing `cpp_modules=` that hold an `import` line; the
+target's other sources keep it. `-fmodules` and the PCH preload are not
+combined on one translation unit.
 
 ccache gets `CCACHE_SLOPPINESS=pch_defines,time_macros` appended on consumers.
 
