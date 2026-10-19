@@ -15,6 +15,7 @@ env_file="$test_path/.env"
 cp "$SCRIPT_DIR/executor.sh" "$test_path/execute_tests.sh"
 chmod +x "$test_path/execute_tests.sh"
 cp "$SCRIPT_DIR/summary.py" "$test_path/summary.py"
+rm -rf "$test_path/profiles"
 cp -r "$SCRIPT_DIR/profiles" "$test_path/profiles"
 
 printf 'generated test env: %s\n' "$env_file"
