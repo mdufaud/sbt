@@ -133,11 +133,6 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose):
         width = max(len(f["module"]) for f in failed_tests)
         for f in failed_tests:
             print("  {}{:<{}}  {}{}".format(c.red, f["module"], width, f["test"], c.reset))
-    if skipped_tests:
-        print("skipped:")
-        width = max(len(s["module"]) for s in skipped_tests)
-        for s in skipped_tests:
-            print("  {}{:<{}}  {}{}".format(c.yellow, s["module"], width, s["test"], c.reset))
     print("======================================================")
 
 
