@@ -747,6 +747,9 @@ With `jtest=N` each shard is recorded on its own (`<module>.<shard>.data` / `.pe
 `perf` cannot merge them) and test durations include the contention between shards:
 use `jtest=1` for numbers to compare.
 
+The recorded process starts with default signal dispositions and an empty signal mask (`perf`
+blocks `SIGWINCH` and ignores `SIGUSR2` in its workload, which breaks tests of signal handling).
+
 Under a runner (wine, qemu-user, node) `perf` would profile the emulator, not the test:
 the profile is skipped with a warning and only the timings stay. A web build has no timings
 unless the gtest XML reaches the host disk.
