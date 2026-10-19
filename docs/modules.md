@@ -556,7 +556,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `cross_sysroot=` | | Path to a cross sysroot; sets `PKG_CONFIG_SYSROOT_DIR` and pkg-config search paths for cross builds. |
 | `with-system-packages=<pm>` | off | `make dep`: skip extlibs mapped in `<pm>_packages`; supported values are `apt`, `pacman`, `apk`, and `yum`. |
 | `fgit=1` | off | `make dep`: force re-clone of git dependencies. |
-| `SBT_LOCK_TIMEOUT=seconds` | `7200` | Wait up to this many seconds for the lock of the build variant (`<build_path>/.sbt.lock`; other machine, platform, libc, compiler, mode or linkage run in parallel); `0` disables it. Read-only goals do not take the lock. |
+| `SBT_LOCK_TIMEOUT=seconds` | `7200` | Wait up to this many seconds for the lock of the build variant (`<build_path>/.sbt.lock`; other machine, platform, libc, compiler, mode or linkage run in parallel); `0` disables it. Read-only goals do not take the lock. `make dep` also holds `$VCPKG_ROOT/.sbt-vcpkg.lock` while vcpkg fetches, so checkouts sharing a vcpkg root never build the same port at once. |
 | `j=number` | logical cores - 1 | SCons parallel jobs. |
 | `repeat=number` | | Repeat each test the requested number of times. |
 | `jtest=number` | off | Run each test binary as `number` concurrent gtest shards (`GTEST_TOTAL_SHARDS` / `GTEST_SHARD_INDEX`, like `ctest -j`); modules stay sequential. Output is shown per module once all its shards finished. Ignored under gdb and on web/android. Tests sharing a fixed port or file must tolerate concurrent runs. |
