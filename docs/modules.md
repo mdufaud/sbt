@@ -555,6 +555,7 @@ Options are passed as `make <option>=<value>` (environment variables work too). 
 | `SBT_LOCK_TIMEOUT=seconds` | `7200` | Wait up to this many seconds for the lock of the build variant (`<build_path>/.sbt.lock`; other machine, platform, libc, compiler, mode or linkage run in parallel); `0` disables it. Read-only goals do not take the lock. |
 | `j=number` | logical cores - 1 | SCons parallel jobs. |
 | `repeat=number` | | Repeat each test the requested number of times. |
+| `jtest=number` | off | Run each test binary as `number` concurrent gtest shards (`GTEST_TOTAL_SHARDS` / `GTEST_SHARD_INDEX`, like `ctest -j`); modules stay sequential. Output is shown per module once all its shards finished. Ignored under gdb and on web/android. Tests sharing a fixed port or file must tolerate concurrent runs. |
 | `brief=1` | off | Keep passing test output in logs and show failures in the console. |
 | `env=path` | `env.py` | Load the named environment module instead of the default project `env.py`. |
 | `dist=type` | | Select a distribution type (`tar`, `apt`, `pacman`, or `docker`). |
@@ -665,6 +666,7 @@ make msantest / make imsantest      # Tests with MSan (clang only)
 make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
 make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
+make test jtest=8                    # Run each test binary as 8 concurrent shards
 ```
 
 #### What the tests get (self-contained run environment)
@@ -676,7 +678,9 @@ own source directory (so relative fixture paths resolve), with logs per module u
 
 The default test profile is `gtest`, selected with `TEST_PROFILE`; profiles live in
 `makefile/scripts/tests/profiles/`. `repeat=N` substitutes `N` into the profile's repeat
-flags, and `brief=1` enables its brief-output flags. Set `TEST_PROFILE_DIR` to use a
+flags, `brief=1` enables its brief-output flags, and `jtest=N` exports the profile's
+`TEST_SHARD_ENV` (`@TOTAL@` = N, `@INDEX@` = 0..N-1) to N concurrent runs of each binary; a
+profile without it does not shard. Set `TEST_PROFILE_DIR` to use a
 different profile directory.
 
 The `.env` exports, in order (later wins — a project `app.generate_test_env` / addon can

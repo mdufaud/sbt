@@ -9,5 +9,6 @@
 : "${TEST_FILTER_FLAG:=--gtest_filter=*FILTER*}"
 : "${TEST_REPEAT_FLAGS:=--gtest_repeat=REPEAT --gtest_throw_on_failure}"
 : "${TEST_BRIEF_FLAGS:=--gtest_brief=1}"
+: "${TEST_SHARD_ENV:=GTEST_TOTAL_SHARDS=@TOTAL@ GTEST_SHARD_INDEX=@INDEX@}"
 # no default for TEST_REPORT_FLAGS here: the executor owns it (unset-only, empty = off)
 : "${TEST_FAILURE_PATTERN:=\[  FAILED  \]}"

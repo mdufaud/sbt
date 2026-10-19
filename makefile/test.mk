@@ -4,7 +4,7 @@
 
 # Every goal handled here is declared ONCE in args.mk (TEST_GOALS) — the same
 # list drives the args.mk stub branch and this .PHONY. Goal reference:
-#   test                     build modules, tests and run tests ([modules|all|ls] [filter] [repeat=x])
+#   test                     build modules, tests and run tests ([modules|all|ls] [filter] [repeat=x] [jtest=x])
 #   itest nointeract_test    same with stdin closed (non-interactive)
 #   gdbtest gdb_test         run tests under gdb
 #   asantest asan_test iasantest nointeract_san_test          address sanitizer
@@ -91,6 +91,7 @@ test: build
 					DEBUGGER_ARGS="$(if $(TEST_RUNNER),,$(DEBUGGER_ARGS))" \
 					TEST_ARGS="$(TEST_ARGS)" \
 					REPEAT="$(repeat)" \
+					JTEST="$(jtest)" \
 					BRIEF="$(brief)" \
 					ASAN_OPTIONS="$(if $(TEST_RUNNER),,$(ASAN_OPTIONS))" \
 					UBSAN_OPTIONS="$(if $(TEST_RUNNER),,$(UBSAN_OPTIONS))" \

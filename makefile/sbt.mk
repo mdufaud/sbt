@@ -140,10 +140,10 @@ SCONS_BUILD_CMD = $(SCONS_PREFIX) scons -Q -j$(j) $(SCONS_ARGS)
 #     forwarded as-is (projects may grow options the vendored sbt doesn't
 #     know yet); the builder warns once on names it never reads.
 # SBT_LOCAL_VARS are make-internal knobs the makefiles consume themselves
-# (j -> scons -j flag, repeat -> gtest env, SCONS_*/DEBUGGER*/TEST_RUNNER ->
+# (j -> scons -j flag, repeat/jtest -> gtest env, SCONS_*/DEBUGGER*/TEST_RUNNER ->
 # scons invocation, INSTALL_* -> install recipe, and any project extension
 # via SBT_EXTRA_OPTS): they are never forwarded.
-SBT_LOCAL_VARS := j repeat SBT_LOCK_TIMEOUT SCONS_ARGS SCONS_PREFIX DEBUGGER \
+SBT_LOCAL_VARS := j repeat jtest SBT_LOCK_TIMEOUT SCONS_ARGS SCONS_PREFIX DEBUGGER \
 	DEBUGGER_ARGS TEST_RUNNER INSTALL_PREFIX INSTALL_DESTDIR \
 	INSTALL_NOCONFIRM INSTALL_LIBSUFFIX INSTALL_BINSUFFIX \
 	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX INSTALL_SHARESUFFIX \

@@ -127,6 +127,54 @@ write_summary()
         "$TEST_PATH" "$APP_NAME" $module_list
 }
 
+# Concurrent shards per test binary (jtest=N); the env is not forwarded to
+# emulated/remote targets, an attached debugger is interactive.
+shards=1
+if [ "${JTEST:-0}" -gt 1 ] 2>/dev/null; then
+    if [ -z "${TEST_SHARD_ENV:-}" ]; then
+        echo "warning: test profile defines no TEST_SHARD_ENV - jtest ignored" >&2
+    elif [ "${DEBUGGER:-}" = "gdb" ] || [ "${SBT_PLATFORM:-}" = "web" ] || [ "${SBT_PLATFORM:-}" = "android" ]; then
+        echo "warning: jtest ignored under gdb, web and android" >&2
+    else
+        shards=$JTEST
+    fi
+fi
+
+# $1 module, $2 module path, $3 command, $4 report flags embedded in the command
+run_sharded()
+{
+    local module="$1" module_path="$2" cmd="$3" report_args="$4"
+    local shard_dir="${log_dir}/${module}/shards"
+    local shard_cmd shard_env shard_report code
+    local rc=0 i
+
+    rm -rf "$shard_dir" "${REPORT_DIR}/shards/${module}"
+    mkdir -p "$shard_dir"
+    for ((i = 0; i < shards; i++)); do
+        shard_env="${TEST_SHARD_ENV//"@TOTAL@"/$shards}"
+        shard_env="${shard_env//"@INDEX@"/$i}"
+        shard_cmd="$cmd"
+        if [ -n "$report_args" ]; then
+            shard_report="${report_args//"$REPORT_DIR/"/"$REPORT_DIR/shards/$module/$i/"}"
+            shard_cmd="${cmd/"$report_args"/"$shard_report"}"
+        fi
+        (cd $module_path && env $shard_env $shard_cmd; echo $? > "${shard_dir}/${i}.exit") > "${shard_dir}/${i}.log" 2>&1 &
+    done
+    wait
+
+    : > "${log_dir}/${module}/output.log"
+    for ((i = 0; i < shards; i++)); do
+        printf '# shard %s/%s\n' "$((i + 1))" "$shards" >> "${log_dir}/${module}/output.log"
+        cat "${shard_dir}/${i}.log" >> "${log_dir}/${module}/output.log"
+        code="$(cat "${shard_dir}/${i}.exit" 2>/dev/null || echo 1)"
+        if [ "$rc" = "0" ]; then
+            rc="$code"
+        fi
+    done
+    echo "$rc" > "${log_dir}/${module}/exit_code"
+    rm -rf "$shard_dir"
+}
+
 execute_tests()
 (
     for module in $module_list;
@@ -162,12 +210,20 @@ execute_tests()
         echo "###################################################################################"
         echo "# testing module: $module"
         echo "# test command: $(echo "$cmd" | tr -s ' ')"
+        if [ "$shards" -gt 1 ]; then
+            echo "# shards: $shards"
+        fi
         echo "###################################################################################"
         echo ""
 
         mkdir -p "${log_dir}/${module}"
         rm -f "${REPORT_DIR}/${APP_NAME}_${module}.xml"
-        if [ -n "$brief_args" ]; then
+        if [ "$shards" -gt 1 ]; then
+            run_sharded "$module" "$module_path" "$cmd" "$report_args"
+            if [ -z "$brief_args" ]; then
+                cat "$output_log"
+            fi
+        elif [ -n "$brief_args" ]; then
             # brief: write everything to the log only, no live console output;
             # failures are printed at the end by print_failures
             (cd $module_path && $cmd; echo $? > "${exit_log}") > "${output_log}" 2>&1

@@ -6,8 +6,10 @@ TEST_MODULE_REPORTS (0 drops per-module gtest xml once merged),
 GITHUB_STEP_SUMMARY (markdown recap appended when set).
 Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml).
 """
+import glob
 import json
 import os
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 
@@ -27,6 +29,29 @@ def case_status(case):
             or case.get("status") == "notrun":
         return "skipped"
     return "passed"
+
+
+def merge_shard_reports(test_path, app_name, module):
+    shard_dir = os.path.join(test_path, "reports", "shards", module)
+    if not os.path.isdir(shard_dir):
+        return
+    suites = []
+    for report in sorted(glob.glob(os.path.join(shard_dir, "*", "*.xml"))):
+        try:
+            suites += list(ET.parse(report).getroot().iter("testsuite"))
+        except (OSError, ET.ParseError):
+            pass
+    if suites:
+        root = ET.Element("testsuites")
+        root.extend(suites)
+        ET.ElementTree(root).write(
+            os.path.join(test_path, "reports", "{}_{}.xml".format(app_name, module)),
+            encoding="utf-8", xml_declaration=True)
+    shutil.rmtree(shard_dir)
+    try:
+        os.rmdir(os.path.dirname(shard_dir))
+    except OSError:
+        pass
 
 
 def parse_report(path):
@@ -148,6 +173,7 @@ def main():
         log_dir = os.path.join(test_path, "logs", module)
         log = os.path.join(log_dir, "output.log")
         exit_code = read_exit_code(log_dir)
+        merge_shard_reports(test_path, app_name, module)
         report = os.path.join(test_path, "reports", "{}_{}.xml".format(app_name, module))
         root, cases = parse_report(report)
         failed = module in flagged or exit_code != 0
