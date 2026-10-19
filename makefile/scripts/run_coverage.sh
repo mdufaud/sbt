@@ -30,6 +30,7 @@ if [ -z "$BUILD_PATH" ] || [ -z "$PROJECT_ROOT_PATH" ]; then
 fi
 
 COVERAGE_DIR="$BUILD_PATH/coverage"
+rm -rf "$COVERAGE_DIR"
 mkdir -p "$COVERAGE_DIR"
 
 # If no modules given, discover all that have a scons.py

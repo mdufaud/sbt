@@ -208,6 +208,8 @@ run_sharded()
 
 execute_tests()
 (
+    rm -rf "$REPORT_DIR/shards"
+    rm -f "$REPORT_DIR"/*.xml "$TEST_PATH/report.xml" "$TEST_PATH/summary.json"
     for module in $module_list;
     do
         module_path=${MODULES_PATH:-$PROJECT_ROOT_PATH}/$module
@@ -256,7 +258,6 @@ execute_tests()
         echo ""
 
         mkdir -p "${log_dir}/${module}"
-        rm -f "${REPORT_DIR}/${APP_NAME}_${module}.xml"
         if [ "$shards" -gt 1 ]; then
             run_sharded "$module" "$module_path" "$cmd" "$report_args"
             if [ -z "$brief_args" ]; then

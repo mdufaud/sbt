@@ -39,6 +39,7 @@ TEST_SCRIPT_ARGS :=
 DEBUGGER :=
 DEBUGGER_ARGS :=
 TEST_PERF :=
+TEST_COVERAGE_RESET :=
 
 # handles:
 #	make test
@@ -85,6 +86,7 @@ SBT_ENV_JSON_PATH := $(BUILD_PATH)/sbt_env.json
 test: test = 1
 test: build
 	$(call mk_log_info,makefile,starting tests in build: $(TEST_PATH))
+	$(QUIET) $(if $(TEST_COVERAGE_RESET),find '$(OBJ_PATH)' -name '*.gcda' -delete)
 	$(if $(TEST_RUNNER),$(call mk_log_warning,makefile,test runner '$(TEST_RUNNER)' active - DEBUGGER and sanitizer options disabled (unsupported under emulation)))
 	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
 	$(QUIET) env SBT_ENV_JSON="$(SBT_ENV_JSON_PATH)" \
@@ -159,6 +161,7 @@ hwasantest: hwasan_test
 # Coverage: build with --coverage instrumentation, run tests, then run gcovr.
 # The recipe runs after the 'test' prerequisite has executed, so .gcda files exist.
 coverage_test: coverage = 1
+coverage_test: TEST_COVERAGE_RESET = 1
 coverage_test: test
 	$(QUIET) command -v gcovr >/dev/null 2>&1 || { $(call echo_log_error,makefile,gcovr not found - install with: pip install gcovr); exit 1; }
 	$(QUIET) $(call echo_log_info,makefile,generating cobertura coverage report at $(BUILD_PATH)/coverage/)

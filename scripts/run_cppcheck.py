@@ -422,6 +422,7 @@ def run(
         )
 
     cppcheck_dir = os.path.join(build_path, "cppcheck")
+    shutil.rmtree(cppcheck_dir, ignore_errors=True)
     os.makedirs(cppcheck_dir, exist_ok=True)
 
     rc = 0

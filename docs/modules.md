@@ -595,7 +595,7 @@ make coverage=1                # Build with --coverage instrumentation
 make covtest m=base            # Build + run tests + emit coverage.xml (Cobertura) + coverage.html
 ```
 
-Requires `gcovr` (`pip install gcovr`). Output files are written to `<build_path>/coverage/coverage.xml`, `<build_path>/coverage/index.html` and `<build_path>/coverage/summary.json` (gcovr `--json-summary`: line, branch and function totals and percents).
+Requires `gcovr` (`pip install gcovr`). Output files are written to `<build_path>/coverage/coverage.xml`, `<build_path>/coverage/index.html` and `<build_path>/coverage/summary.json` (gcovr `--json-summary`: line, branch and function totals and percents). `<build_path>/coverage/` is deleted at the start of each run, and `make covtest` first deletes the `.gcda` counters of the previous runs (gcov would merge them into the new ones).
 
 Coverage gates, in `app.py` (unset = no gate):
 
@@ -640,7 +640,7 @@ modules = {
 }
 ```
 
-`unusedFunction` and `missingInclude` warnings are suppressed by default. Reports land in `<build_path>/cppcheck/<module>/` (`report.xml`, `stdout.txt`, `html/` when `cppcheck-htmlreport` is installed) plus a merged errors-only `<build_path>/cppcheck/errors.xml` and `<build_path>/cppcheck/summary.json` (`{ "modules": { <module>: { "errors", "issues", "rc", "report" } }, "errors", "issues", "threshold", "status" }`; `errors` counts `severity="error"` findings, `issues` every finding).
+`unusedFunction` and `missingInclude` warnings are suppressed by default. Reports land in `<build_path>/cppcheck/<module>/` (`report.xml`, `stdout.txt`, `html/` when `cppcheck-htmlreport` is installed) plus a merged errors-only `<build_path>/cppcheck/errors.xml` and `<build_path>/cppcheck/summary.json` (`{ "modules": { <module>: { "errors", "issues", "rc", "report" } }, "errors", "issues", "threshold", "status" }`; `errors` counts `severity="error"` findings, `issues` every finding). `<build_path>/cppcheck/` is deleted at the start of each run.
 
 By default `make cppcheck` fails on any finding (`--error-exitcode=1`). To gate on errors only:
 
@@ -726,6 +726,9 @@ Each run also writes, even when tests fail:
   "skipped_tests": [ { "module", "test" } ], "modules": { <module>: { "exit_code", "status", "report", "log", "tests",
   "failed_tests" } } }`. `tests` is `null` for a module without a report. Post-process it
   (upload, gate, badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
+
+Each test run starts by deleting the previous `reports/*.xml`, `report.xml` and `summary.json`
+(whatever the modules it runs); `reports/perf/` is only emptied by `make perftest`.
 
 When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a markdown table of modules and the
 failed and skipped tests is appended to it.
