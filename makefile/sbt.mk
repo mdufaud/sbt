@@ -208,6 +208,7 @@ help:
 	$(call mk_log_info,makefile,build with code coverage instrumentation: coverage=1)
 	$(call mk_log_info,makefile,run cppcheck static analysis: make cppcheck [m=modules])
 	$(call mk_log_info,makefile,run tests with coverage and emit cobertura xml: make covtest [m=modules])
+	$(call mk_log_info,makefile,profile tests with perf and list the slowest ones (native only): make perftest [m=modules] [jtest=x])
 	$(call mk_log_info,makefile,build with static libs: static=1)
 	$(call mk_log_info,makefile,build specific release: mode=debug|release)
 	$(call mk_log_info,makefile,cross build for windows: platform=win)

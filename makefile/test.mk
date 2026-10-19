@@ -18,6 +18,7 @@
 #   lvaltest valgrind_leak_test ilvaltest nointeract_valgrind_leak_test   valgrind leak check
 #   ttest strace_test ittest nointeract_strace_test           strace
 #   ivtest iltest             non-interactive valgrind / valgrind leak check
+#   perftest perf_test iperftest nointeract_perf_test   perf record each test binary (native only), lists the slowest tests
 .PHONY: $(TEST_GOALS)
 
 # enter the test branch only for goals in the exact TEST_GOALS list (args.mk)
@@ -37,6 +38,7 @@ TEST_ACTION := test
 TEST_SCRIPT_ARGS :=
 DEBUGGER :=
 DEBUGGER_ARGS :=
+TEST_PERF :=
 
 # handles:
 #	make test
@@ -92,6 +94,7 @@ test: build
 					TEST_ARGS="$(TEST_ARGS)" \
 					REPEAT="$(repeat)" \
 					JTEST="$(jtest)" \
+					TEST_PERF="$(TEST_PERF)" \
 					BRIEF="$(brief)" \
 					VERBOSE="$(or $(verbose),$(v))" \
 					ASAN_OPTIONS="$(if $(TEST_RUNNER),,$(ASAN_OPTIONS))" \
@@ -114,6 +117,10 @@ valgrind_leak_test: DEBUGGER_ARGS = --leak-check=full --show-leak-kinds=all --tr
 valgrind_leak_test: DEBUGGER = valgrind
 valgrind_leak_test: test
 lvaltest: valgrind_leak_test
+
+perf_test: TEST_PERF = 1
+perf_test: test
+perftest: perf_test
 
 gdb_test: DEBUGGER_ARGS = --args
 gdb_test: DEBUGGER = gdb
@@ -179,5 +186,6 @@ $(eval $(call mk_nointeract_debug_test,tsan_test,itsantest))
 $(eval $(call mk_nointeract_debug_test,lsan_test,ilsantest))
 $(eval $(call mk_nointeract_debug_test,msan_test,imsantest))
 $(eval $(call mk_nointeract_debug_test,hwasan_test,ihwasantest))
+$(eval $(call mk_nointeract_debug_test,perf_test,iperftest))
 
 endif # test

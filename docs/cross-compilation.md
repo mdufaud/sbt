@@ -383,6 +383,8 @@ make itest m=base platform=windows                     # runs under wine
 Rules when a runner is active:
 - **`DEBUGGER` (gdb/valgrind/strace) and all sanitizers (asan/ubsan/tsan/...) are forced off**
   with a warning — none work under qemu-user/wine.
+- **`perftest` records no CPU profile** (`perf` would profile the emulator itself): it warns and
+  keeps only the per-test timings.
 - **wine** always gets `WINEPREFIX=build/.../.wine` so the wine filesystem lives in the build
   tree and dies with `make clean` instead of polluting `~/.wine`.
 - **static** builds need no lib-search env. **dynamic** builds inject lib search paths: wine →

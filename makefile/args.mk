@@ -29,7 +29,8 @@ TEST_GOALS := test itest nointeract_test gdbtest gdb_test \
 	valtest valgrind_test ivaltest nointeract_valgrind_test \
 	lvaltest valgrind_leak_test ilvaltest nointeract_valgrind_leak_test \
 	ttest strace_test ittest nointeract_strace_test \
-	ivtest iltest
+	ivtest iltest \
+	perftest perf_test iperftest nointeract_perf_test
 MAKEARG_TEST_GOAL := $(filter $(TEST_GOALS),$(MAKEARG_1))
 
 # Sub-commands owning a real rule - never stubbed here

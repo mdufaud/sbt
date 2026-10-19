@@ -140,6 +140,35 @@ if [ "${JTEST:-0}" -gt 1 ] 2>/dev/null; then
     fi
 fi
 
+perf_wrapper=
+perf_dir="$REPORT_DIR/perf"
+
+# perftest: profile natively only, a runner would profile the emulator itself
+setup_perf()
+{
+    [ -n "${TEST_PERF:-}" ] || return 0
+    if [ -n "$TEST_RUNNER" ] || [ "${SBT_PLATFORM:-}" = "web" ] || [ "${SBT_PLATFORM:-}" = "android" ]; then
+        echo "warning: perf profile ignored under a test runner, web and android - timing only" >&2
+        return 0
+    fi
+    if ! command -v perf >/dev/null 2>&1; then
+        echo "error: perf not found, install it to use perftest" >&2
+        return 1
+    fi
+    mkdir -p "$perf_dir"
+    perf_wrapper="perf record -q -F 499 --user-callchains --call-graph dwarf"
+}
+
+perf_report()
+{
+    local data
+    for data in "$perf_dir/$1".data "$perf_dir/$1".[0-9]*.data; do
+        [ -f "$data" ] || continue
+        perf report --stdio --no-children --percent-limit 1 -i "$data" > "${data%.data}.perf.txt" 2>/dev/null \
+            || echo "warning: perf report failed for $data" >&2
+    done
+}
+
 # $1 module, $2 module path, $3 command, $4 report flags embedded in the command
 run_sharded()
 {
@@ -158,6 +187,7 @@ run_sharded()
             shard_report="${report_args//"$REPORT_DIR/"/"$REPORT_DIR/shards/$module/$i/"}"
             shard_cmd="${cmd/"$report_args"/"$shard_report"}"
         fi
+        shard_cmd="${shard_cmd//"@SHARD@"/.$i}"
         (cd $module_path && env $shard_env $shard_cmd; echo $? > "${shard_dir}/${i}.exit") > "${shard_dir}/${i}.log" 2>&1 &
     done
     wait
@@ -198,7 +228,14 @@ execute_tests()
             report_args="$TEST_REPORT_FLAGS"
         fi
 
-        cmd="$TEST_WRAPPER $test_bin_path \
+        wrapper="$TEST_WRAPPER"
+        if [ -n "$perf_wrapper" ]; then
+            rm -f "$perf_dir/$module".data "$perf_dir/$module".*.data "$perf_dir/$module".perf.txt "$perf_dir/$module".*.perf.txt
+            # one data file per shard: perf cannot merge them
+            wrapper="$perf_wrapper -o $perf_dir/$module$([ "$shards" -gt 1 ] && echo @SHARD@).data --"
+        fi
+
+        cmd="$wrapper $test_bin_path \
                 $TEST_RUN_FLAGS \
                 $report_args \
                 ${TEST_FILTER_FLAG//FILTER/$test_filter} \
@@ -233,6 +270,10 @@ execute_tests()
             # into one ordered log so failure context stays correlated
             (cd $module_path && $cmd; echo $? > "${exit_log}") 2>&1 | tee "${output_log}"
         fi
+
+        if [ -n "$perf_wrapper" ]; then
+            perf_report "$module"
+        fi
     done
 
     print_failures
@@ -266,6 +307,7 @@ list_tests()
 
 case $1 in
     test)
+        setup_perf || exit 1
         execute_tests
         ;;
     list)

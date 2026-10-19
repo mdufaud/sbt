@@ -667,6 +667,8 @@ make lsantest / make ilsantest      # Tests with LSan (standalone)
 make msantest / make imsantest      # Tests with MSan (clang only)
 make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
+make perftest m=app                   # perf record each test binary + the slowest tests
+make iperftest                       # Same, non-interactive
 make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
 make test jtest=8                    # Run each test binary as 8 concurrent shards
 ```
@@ -727,6 +729,27 @@ Each run also writes, even when tests fail:
 
 When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a markdown table of modules and the
 failed and skipped tests is appended to it.
+
+#### Profiling the tests (perf)
+
+`make perftest` (`iperftest` for the non-interactive variant) runs the tests like `make test`
+with every test binary under `perf record` (`--call-graph dwarf` at 499 Hz, user space only,
+so it works with `kernel.perf_event_paranoid=2`) and lists the 10 slowest tests in the recap
+and as `slowest` in `summary.json`. Per module it writes, in `<build_path>/test/reports/perf/`:
+
+- `<module>.data` — the raw recording, for `perf report -i` / `perf annotate` / `perf script`.
+- `<module>.perf.txt` — `perf report --stdio` text, symbols above 1%.
+
+Needs `perf` (not installed by `make dep`). An optimized build is advised
+(`mode=release`): a `-O0` profile is misleading.
+
+With `jtest=N` each shard is recorded on its own (`<module>.<shard>.data` / `.perf.txt`,
+`perf` cannot merge them) and test durations include the contention between shards:
+use `jtest=1` for numbers to compare.
+
+Under a runner (wine, qemu-user, node) `perf` would profile the emulator, not the test:
+the profile is skipped with a warning and only the timings stay. A web build has no timings
+unless the gtest XML reaches the host disk.
 
 `make test ls` lists the tests of each module and exits non-zero when no test binary was
 built.

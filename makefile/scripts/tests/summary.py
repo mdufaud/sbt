@@ -4,6 +4,7 @@ Usage: summary.py TEST_PATH APP_NAME [module ...]
 Env: FAILED_MODULES (modules the executor flagged: exit code or sanitizer),
 TEST_MODULE_REPORTS (0 drops per-module gtest xml once merged),
 VERBOSE (non-zero lists passed tests in the recap too),
+TEST_PERF (non-empty adds the slowest tests to the recap and summary.json),
 GITHUB_STEP_SUMMARY (markdown recap appended when set).
 Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml).
 """
@@ -13,6 +14,8 @@ import os
 import shutil
 import sys
 import xml.etree.ElementTree as ET
+
+SLOWEST_COUNT = 10
 
 
 def read_exit_code(log_dir):
@@ -101,7 +104,7 @@ class Colors:
         self.reset = "\033[0m" if enabled else ""
 
 
-def print_recap(modules, totals, failed_tests, skipped_tests, verbose):
+def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest):
     c = Colors(sys.stdout.isatty())
     label = {
         "passed": c.green + "OK     " + c.reset,
@@ -133,6 +136,11 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose):
         width = max(len(f["module"]) for f in failed_tests)
         for f in failed_tests:
             print("  {}{:<{}}  {}{}".format(c.red, f["module"], width, f["test"], c.reset))
+    if slowest:
+        print("slowest:")
+        width = max(len(s["module"]) for s in slowest)
+        for s in slowest:
+            print("  {:8.3f} s  {:<{}}  {}".format(s["time"], s["module"], width, s["test"]))
     print("======================================================")
 
 
@@ -218,6 +226,13 @@ def main():
     elif os.path.isfile(merged):
         os.remove(merged)
 
+    slowest = []
+    if os.environ.get("TEST_PERF"):
+        slowest = sorted(
+            ({"module": m, "test": c["name"], "time": c["time"]}
+             for m, info in modules.items() for c in info["cases"]),
+            key=lambda t: t["time"], reverse=True)[:SLOWEST_COUNT]
+
     summary = {
         "app": app_name,
         "status": "failed" if failed_tests else "passed",
@@ -232,12 +247,14 @@ def main():
             for m, info in modules.items()
         },
     }
+    if slowest:
+        summary["slowest"] = slowest
     with open(os.path.join(test_path, "summary.json"), "w") as f:
         json.dump(summary, f, indent=4)
         f.write("\n")
 
     if modules:
-        print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0").casefold() not in ("", "0", "false"))
+        print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0").casefold() not in ("", "0", "false"), slowest)
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary and modules:
         write_step_summary(step_summary, app_name, modules, totals, failed_tests, skipped_tests)
