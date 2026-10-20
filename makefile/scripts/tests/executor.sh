@@ -52,6 +52,12 @@ print_module_failure()
 (
     local module="$1"
     local output_log="${log_dir}/${module}/output.log"
+    local exit_code
+    exit_code="$(cat "${log_dir}/${module}/exit_code" 2>/dev/null)"
+    if [ -n "$timeout_wrapper" ] && { [ "$exit_code" = "124" ] || [ "$exit_code" = "137" ]; }; then
+        echo ""
+        echo "--- ${module} timed out after ${test_timeout}s ---"
+    fi
     [ -s "${output_log}" ] || return 0
 
     echo ""
@@ -138,6 +144,18 @@ if [ "${JTEST:-0}" -gt 1 ] 2>/dev/null; then
     else
         shards=$JTEST
     fi
+fi
+
+# per test binary (per shard with jtest): test_timeout= wins, else non-interactive
+# runs take app.test_timeout or 5 minutes; 0 disables it. --foreground keeps
+# interactive tests on the tty, -k kills what ignores SIGTERM
+test_timeout="${TEST_TIMEOUT:-}"
+if [ -z "$test_timeout" ] && [ -n "${TEST_NONINTERACTIVE:-}" ]; then
+    test_timeout="${TEST_APP_TIMEOUT:-300}"
+fi
+timeout_wrapper=
+if [ -n "$test_timeout" ] && [ "$test_timeout" != "0" ] && [ "${DEBUGGER:-}" != "gdb" ]; then
+    timeout_wrapper="timeout --foreground -k 10 $test_timeout"
 fi
 
 perf_wrapper=
@@ -236,6 +254,9 @@ execute_tests()
             # one data file per shard: perf cannot merge them
             # perf blocks SIGWINCH and ignores SIGUSR2 in its workload: restore the defaults
             wrapper="$perf_wrapper -o $perf_dir/$module$([ "$shards" -gt 1 ] && echo @SHARD@).data -- env --default-signal"
+        fi
+        if [ -n "$timeout_wrapper" ]; then
+            wrapper="$timeout_wrapper $wrapper"
         fi
 
         cmd="$wrapper $test_bin_path \

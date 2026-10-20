@@ -60,6 +60,13 @@ def _test_command(app):
     return {}
 
 
+def _test_timeout(app):
+    timeout = getattr(app, "test_timeout", None)
+    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0):
+        raise TypeError(f"app.test_timeout must be an integer >= 0: {timeout!r}")
+    return timeout
+
+
 def _relative_paths(build_path):
     abs_paths = {
         "bin": builder.build_bin_path,
@@ -103,6 +110,7 @@ def _build_env():
             "env": _test_env(app),
             "command": _test_command(app),
             "module_reports": bool(getattr(app, "test_module_reports", True)),
+            "timeout": _test_timeout(app),
         },
         "coverage": {
             "fail_under": getattr(app, "gcov_fail_under", None),

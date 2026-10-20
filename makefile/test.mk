@@ -96,6 +96,8 @@ test: build
 					TEST_ARGS="$(TEST_ARGS)" \
 					REPEAT="$(repeat)" \
 					JTEST="$(jtest)" \
+					TEST_TIMEOUT="$(test_timeout)" \
+					TEST_NONINTERACTIVE="$(TEST_NONINTERACTIVE)" \
 					TEST_PERF="$(TEST_PERF)" \
 					BRIEF="$(brief)" \
 					VERBOSE="$(or $(verbose),$(v))" \
@@ -107,6 +109,7 @@ test: build
 					bash $(TEST_PATH)/execute_tests.sh "$(TEST_ACTION)" "$(MODULES_NAME_SPLIT)" "$(TEST_NAME_FILTER)" $(TEST_SCRIPT_ARGS)
 
 nointeract_test: TEST_SCRIPT_ARGS += 0>&-
+nointeract_test: TEST_NONINTERACTIVE = 1
 nointeract_test: test
 itest: nointeract_test
 
@@ -176,6 +179,7 @@ ttest: strace_test
 define mk_nointeract_debug_test
 .PHONY: nointeract_$(1) $(2)
 nointeract_$(1): TEST_SCRIPT_ARGS += 0>&-
+nointeract_$(1): TEST_NONINTERACTIVE = 1
 nointeract_$(1): $(1)
 $(2): nointeract_$(1)
 endef

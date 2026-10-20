@@ -536,7 +536,7 @@ used by Make to resolve configuration and paths.
 
 Options are passed as `make <option>=<value>` (environment variables work too). Cross-compilation options (`machine=`, `platform=`, `libc=`, `compiler=`) are detailed in [cross-compilation.md](cross-compilation.md), `test=`/`demo=` targets in the [Testing](#testing) section below.
 
-Values are checked before anything runs (`make` stops with `invalid option values: ...`): flags (`static`, `asan`, `test`, `demo`, `brief`, ...) accept `0`, `1`, `true` or `false`; `j`, `jtest` and `repeat` an integer >= 1; `SBT_LOCK_TIMEOUT` an integer >= 0; `PORT` 1-65535; `compiler`, `platform`, `machine`, `libc` and `dist` the values of [cross-compilation.md](cross-compilation.md) and of this table. Empty means unset.
+Values are checked before anything runs (`make` stops with `invalid option values: ...`): flags (`static`, `asan`, `test`, `demo`, `brief`, ...) accept `0`, `1`, `true` or `false`; `j`, `jtest` and `repeat` an integer >= 1; `SBT_LOCK_TIMEOUT` and `test_timeout` an integer >= 0; `PORT` 1-65535; `compiler`, `platform`, `machine`, `libc` and `dist` the values of [cross-compilation.md](cross-compilation.md) and of this table. Empty means unset.
 
 | Option | Default | Effect |
 |--------|---------|--------|
@@ -560,6 +560,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `j=number` | logical cores - 1 | SCons parallel jobs. |
 | `repeat=number` | | Repeat each test the requested number of times. |
 | `jtest=number` | off | Run each test binary as `number` concurrent gtest shards (`GTEST_TOTAL_SHARDS` / `GTEST_SHARD_INDEX`, like `ctest -j`); modules stay sequential. Output is shown per module once all its shards finished. Ignored under gdb and on web/android. Tests sharing a fixed port or file must tolerate concurrent runs. |
+| `test_timeout=seconds` | non-interactive goals (`itest`, `iasantest`, ...): `test_timeout` of `app.py`, else `300`; interactive goals: off | Stop each test binary (each shard with `jtest`) after `seconds`: `SIGTERM`, then `SIGKILL` 10 s later; the module fails and the recap says it timed out. `0` disables it. Ignored under gdb. |
 | `brief=1` | off | Keep passing test output in logs and show failures in the console. |
 | `env=path` | `env.py` | Load the named environment module instead of the default project `env.py`. |
 | `dist=type` | | Select a distribution type (`tar`, `apt`, `pacman`, or `docker`). |
@@ -721,6 +722,8 @@ Each run also writes, even when tests fail:
   `TEST_REPORT_FLAGS`; set it empty to disable or to another flag — from the env, an
   app/addon `.env` export, or a custom profile — to change it). `test_module_reports =
   False` in `app.py` deletes them once merged.
+  `test_timeout = seconds` in `app.py` sets the per binary limit of the non-interactive
+  goals (default `300`, `0` disables it); `test_timeout=` on the command line overrides it.
 - `<build_path>/test/report.xml` — all module reports merged into one JUnit-style
   `<testsuites>` (suites prefixed with `<module>.`), for CI test-report viewers.
 - `<build_path>/test/summary.json` — `{ "app", "status", "report", "tests": { "total",

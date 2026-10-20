@@ -49,6 +49,8 @@ def main():
     ex("SBT_CROSS", 1 if bld["cross"] else 0)
     ex("PYTHON_BIN", sys.executable)
     ex("TEST_MODULE_REPORTS", 1 if d["test"].get("module_reports", True) else 0)
+    app_timeout = d["test"].get("timeout")
+    ex("TEST_APP_TIMEOUT", "" if app_timeout is None else app_timeout)
     for mapping in ("env", "command"):
         for key, value in (d["test"].get(mapping) or {}).items():
             ex(key, value)
