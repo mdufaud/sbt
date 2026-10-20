@@ -129,7 +129,9 @@ write_summary()
     done
     # the test env's PYTHONHOME serves the bindings' embedded interpreter; the
     # host python must resolve its own stdlib
-    env -u PYTHONHOME FAILED_MODULES="${failed_modules}" "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
+    env -u PYTHONHOME FAILED_MODULES="${failed_modules}" \
+        TEST_TIMEOUT_SECONDS="$([ -n "$timeout_wrapper" ] && echo "$test_timeout")" \
+        "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/summary.py" \
         "$TEST_PATH" "$APP_NAME" $module_list
 }
 

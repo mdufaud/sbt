@@ -715,6 +715,16 @@ duration, then the totals and the lists of failed and skipped tests (colored on 
 XML reports, so it needs them (see `TEST_REPORT_FLAGS` below); a module without a report
 shows its exit code. With `repeat=N`, gtest reports the last iteration only.
 
+`test_timeout = seconds` in `app.py` sets the per binary limit of the non-interactive goals
+(default `300`, `0` disables it); `test_timeout=` on the command line overrides it.
+A binary that did not end on its own is told apart from failed tests: exit `124`/`137` under
+`test_timeout` is `timed out after Ns`, any exit other than `0`/`1` is `crashed` (with the signal
+name for `128+n`). The recap marks the module line and ends with `crashed:` / `timed out:` lists
+naming the test that was running: one started in the log and never ended (profile
+`TEST_START_PATTERN` / `TEST_END_PATTERN`; brief runs print no start line), or one named by
+`TEST_INTERRUPT_PATTERN`, a regex an app can export from `generate_test_env` for the line its
+own watchdog prints (group 1 = the test).
+
 Each run also writes, even when tests fail:
 
 - `<build_path>/test/reports/<app>_<module>.xml` — one gtest XML per module
@@ -722,14 +732,17 @@ Each run also writes, even when tests fail:
   `TEST_REPORT_FLAGS`; set it empty to disable or to another flag — from the env, an
   app/addon `.env` export, or a custom profile — to change it). `test_module_reports =
   False` in `app.py` deletes them once merged.
-  `test_timeout = seconds` in `app.py` sets the per binary limit of the non-interactive
-  goals (default `300`, `0` disables it); `test_timeout=` on the command line overrides it.
 - `<build_path>/test/report.xml` — all module reports merged into one JUnit-style
-  `<testsuites>` (suites prefixed with `<module>.`), for CI test-report viewers.
+  `<testsuites>` (suites prefixed with `<module>.`), for CI test-report viewers. A crashed or
+  timed out binary adds a suite named after its module with one `<error>` case (the
+  interrupted test, else `(binary)`), counted in `errors`.
 - `<build_path>/test/summary.json` — `{ "app", "status", "report", "tests": { "total",
   "passed", "failed", "skipped", "time" }, "failed_tests": [ { "module", "test" } ],
-  "skipped_tests": [ { "module", "test" } ], "modules": { <module>: { "exit_code", "status", "report", "log", "tests",
-  "failed_tests" } } }`. `tests` is `null` for a module without a report. Post-process it
+  "skipped_tests": [ { "module", "test" } ], "crashed": [ { "module", "exit_code", "signal",
+  "tests" } ], "timed_out": [ { "module", "seconds", "tests" } ], "modules": { <module>: {
+  "exit_code", "status", "outcome", "signal", "interruption", "unfinished_tests", "report",
+  "log", "tests", "failed_tests" } } }`. `outcome` is `passed`, `failed`, `crashed` or
+  `timeout`; `tests` is `null` for a module without a report. Post-process it
   (upload, gate, badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
 
 Each test run starts by deleting the previous `reports/*.xml`, `report.xml` and `summary.json`
