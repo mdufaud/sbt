@@ -213,8 +213,13 @@ def create_module_env(conf, ctx,
     new_final_lib.reverse()
     env['LIBS'] = new_final_lib
 
-    # Precompiled header: only direct dependencies on a header module consume it.
-    for dep_modname in conf.get("declared-depends", []):
-        scons_pch.consume(env, dep_modname, ctx)
+    # Precompiled header: only direct dependencies on a header module consume it,
+    # unless "pch" or a selector form ("android-pch") opts out, last match wins.
+    use_pch = conf.get("pch", True)
+    for option in modules_options:
+        use_pch = conf.get(f"{option}-pch", use_pch)
+    if use_pch:
+        for dep_modname in conf.get("declared-depends", []):
+            scons_pch.consume(env, dep_modname, ctx)
 
     return env

@@ -35,6 +35,22 @@ list `std` itself. A module that must not use the header (feature-macro hostile
 dependency trees, e.g. python's pyconfig.h redefining glibc feature macros)
 simply does not list it. A module can list one header module at most.
 
+A module that keeps the header module in `depends` can skip the header with the
+`pch` conf key, on every build or on some selectors only:
+
+```python
+"gui": {
+    "depends": ["std", "base"],
+    # android-only define: the flags differ from the header module's there
+    "android-defines": ["GUI_GLES3"],
+    "android-pch": False,
+},
+```
+
+`pch` defaults to `True`. Its selector forms (`android-pch`, `arm64-pch`,
+`clang-pch`, `mode-release-pch`, ...) are resolved like other selector keys,
+the last matching one wins.
+
 No source change is needed: the compiler injects the header ahead of every C++
 translation unit of the consumer (`-include`, or `-include-pch` with clang).
 Plain `#include`s of the same headers in sources stay valid and become cheap.
@@ -71,7 +87,8 @@ a difference stops the configure step and lists the diverging tokens.
 
 Warnings (`-W*`) and include paths (`-I`, `-isystem`) are ignored by the check.
 Defines, `-std`, `-f*` / `-m*` flags and the compiler itself must match. To
-keep a module out, drop the header module from its `depends`, or align its flags.
+keep a module out, drop the header module from its `depends`, set `pch: False`
+(or a selector form such as `android-pch: False`), or align its flags.
 
 ## Artifacts and rebuilds
 
@@ -109,7 +126,9 @@ and the implicit consumption by every module depending on the owner.
    module the `extlibs` its header includes.
 2. List the new module in the `depends` of every module that consumed the
    header, direct dependents only.
-3. Drop `pch: False`: a module opts out by not listing the header module.
+3. Drop `pch: False` where it only meant "no implicit PCH": a module opts out by
+   not listing the header module. `pch: False` is still accepted and now skips
+   a header module the module lists in `depends` (see Usage).
 
 A consumer whose C++ flags or defines differ from the header module's now fails
 at configure time (see Flag compatibility) instead of silently losing the PCH.

@@ -66,6 +66,7 @@ SBT auto-fills missing keys (`depends`, `libs`, `link`, `flags`) as empty lists.
 | `link` | `list[str]` | Linker flags (`LINKFLAGS`) |
 | `bin-link` | `list[str]` | Linker flags for binaries/tests/demos only (`BIN_LINKFLAGS`) |
 | `extlibs` | `list[str]` | External library names (vcpkg), see [dependencies.md](dependencies.md) |
+| `pch` | `bool` | `False` skips the precompiled header of a header module listed in `depends`; selector forms (`android-pch`) override it, last match wins. See [pch.md](pch.md) |
 
 ### Discovery keys
 
