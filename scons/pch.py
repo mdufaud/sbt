@@ -170,14 +170,16 @@ def verify(env):
             env["APP_MODULE_NAME"], header["module"], only_module, only_header, header["module"]))
 
 
-def strip(env):
-    """Drop PCH consumption from an env that compiles C++ modules: the
-    -fmodules front-end and the PCH preload are not combined on one TU."""
+def strip(env, log=True):
+    """Drop PCH consumption from an env whose sources must not preload the
+    header: C++ module units (the -fmodules front-end and the PCH preload are
+    not combined on one TU) and sources sbt bundles itself."""
     instance = env.get("PCH")
     if instance is None:
         return
-    logger.info("pch: C++ module units of '{}' skip header module '{}'".format(
-        env.get("APP_MODULE_NAME"), instance["module"]))
+    if log:
+        logger.info("pch: C++ module units of '{}' skip header module '{}'".format(
+            env.get("APP_MODULE_NAME"), instance["module"]))
     env["CXXFLAGS"] = [f for f in env["CXXFLAGS"] if f not in instance["flag"]]
     del env["PCH"]
 

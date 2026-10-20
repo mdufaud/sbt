@@ -44,6 +44,10 @@ def java_safe(part):
         part = "_" + part
     return part
 
+def jni_mangle(namespace):
+    """JNI symbol form of a Java package: '_' must become '_1' before '.' becomes '_'."""
+    return namespace.replace("_", "_1").replace(".", "_")
+
 def get_gradle_build_type(app, mode, default="debug"):
     """Return the Gradle build type (assemble<BuildType>) for an sbt compile mode.
 
@@ -305,7 +309,7 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
     replacements = {
         "__SBT_PROJECT_NAME__": name,
         "__SBT_NAMESPACE__": config["namespace"],
-        "__SBT_NAMESPACE_JNI__": config["namespace"].replace(".", "_"),
+        "__SBT_NAMESPACE_JNI__": jni_mangle(config["namespace"]),
         "__SBT_LOG_TAG__": project_name,
         "__SBT_APP_ID__": app_id,
         "__SBT_APP_LABEL__": name,
@@ -521,7 +525,7 @@ def copy_module_sos_to_jnilibs(staging_dir, module_sos):
     return dsts
 
 
-def stage_bridge_source(dst_path, namespace, log_tag):
+def stage_bridge_source(dst_path, namespace, log_tag, program_name):
     """Write terminal_bridge.cpp to dst_path with placeholders replaced.
 
     The bridge is compiled into the SharedLibrary by scons, so its JNI symbol
@@ -532,8 +536,9 @@ def stage_bridge_source(dst_path, namespace, log_tag):
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     with open(src) as f:
         content = f.read()
-    content = content.replace("__SBT_NAMESPACE_JNI__", namespace.replace(".", "_"))
+    content = content.replace("__SBT_NAMESPACE_JNI__", jni_mangle(namespace))
     content = content.replace("__SBT_LOG_TAG__", log_tag)
+    content = content.replace("__SBT_PROJECT_NAME__", program_name)
     with open(dst_path, "w") as f:
         f.write(content)
     return dst_path

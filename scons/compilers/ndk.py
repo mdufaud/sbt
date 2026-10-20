@@ -61,5 +61,6 @@ def load_in_env(env):
         ],
         CPPPATH = [
             ndk_app_glue_dir,
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "include"),
         ],
     )

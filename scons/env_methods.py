@@ -116,6 +116,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     scons_utils.add_env_app_conf(ctx.app, apk_env, "demo")
     for app_conf in ctx.default_app_conf_to_get:
         scons_utils.add_env_app_conf(ctx.app, apk_env, "demo", app_conf)
+    scons_pch.verify(apk_env)
 
     module_android_dir = os_path.join(module_dir, android_dir) if android_dir else None
     project_name = ctx.app.name
@@ -141,20 +142,26 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     else:
         bridge_src = scons_android.stage_bridge_source(
             os_path.join(builder.build_path, "apk-obj", sanitized_name, "terminal_bridge.cpp"),
-            config["namespace"], project_name,
+            config["namespace"], project_name, name,
         )
         extra_srcs.append(bridge_src)
-        apk_env.Append(SHLINKFLAGS=['-Wl,--no-undefined', '-static-libstdc++'])
+        # The bridge defines __wrap_exit: exit() in this .so returns to the terminal instead of killing the app.
+        apk_env.Append(SHLINKFLAGS=['-Wl,--no-undefined', '-static-libstdc++', '-Wl,--wrap=exit'])
         for lib in ['android', 'log']:
             if lib not in apk_env.get('LIBS', []):
                 apk_env.Append(LIBS=[lib])
 
     all_srcs = scons_utils.as_list(src)
     objects = apk_env.SharedObject(all_srcs)
+    pch = apk_env.get("PCH")
+    if pch:
+        apk_env.Depends(objects, pch["node"])
+    extra_env = apk_env.Clone()
+    scons_pch.strip(extra_env, log=False)
     for extra_src in extra_srcs:
         basename = os_path.splitext(os_path.basename(extra_src))[0]
         obj_path = os_path.join(builder.build_path, "apk-obj", sanitized_name, basename)
-        objects.extend(apk_env.SharedObject(obj_path, extra_src))
+        objects.extend(extra_env.SharedObject(obj_path, extra_src))
 
     so_path = os_path.join(builder.build_lib_path, sanitized_name)
     so_lib = apk_env.SharedLibrary(so_path, objects)

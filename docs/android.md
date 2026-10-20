@@ -325,6 +325,11 @@ silently producing an unsigned APK.
 
 **Terminal mode** (default): For non-graphical programs. The app displays a scrollable monospace terminal view showing captured `stdout` and `stderr` output. The user's `main()` runs in a background thread.
 
+- `argv[0]` is the demo/bin name; the args field accepts `'...'` / `"..."` grouping.
+- `exit()` / `std::exit()` called from `main`'s thread ends the program like a return from `main` and the output stays on screen (the APK is linked with `-Wl,--wrap=exit`). Like a real `exit()`, destructors of the frames being left do not run; `atexit` handlers and static destructors do not run either, since the app keeps living. In a shared (non-`static=1`) build, `exit()` inside a module `.so` is not wrapped and still closes the app.
+- Output written after `main` returns through a duplicated fd is still shown; the exit line then notes that a background writer keeps stdout/stderr open.
+- Output printed by static constructors (before `main`) is not captured.
+
 **NativeActivity mode** (override): For graphical apps (e.g. ImGui). Uses `android_native_app_glue` and `android_main()` entry point. The module provides a custom `AndroidManifest.xml` and `MainActivity.kt`.
 
 ### Placeholders
@@ -377,6 +382,39 @@ mymodule/android/
         └── MainActivity.kt       # NativeActivity + keyboard/unicode JNI
 ```
 
+## JNI Helpers
+
+Android builds put `<sbt>/include` on the include path, so any module or demo source can use the header-only `sbt/jni.hpp` (namespace `sbt::jni`):
+
+| Helper | Purpose |
+|--------|---------|
+| `ScopedEnv(JavaVM *)` | RAII `JNIEnv` for the current thread: attaches only if the thread is detached, detaches only what it attached. `get()`, `explicit operator bool` |
+| `to_jstring(env, std::string_view)` | UTF-8 to `jstring`; invalid bytes become U+FFFD, emoji and embedded NUL survive (safe under CheckJNI, unlike `NewStringUTF` on raw bytes) |
+| `to_string(env, jstring)` | `jstring` to UTF-8 `std::string`; `nullptr` gives `""` |
+| `clear_exception(env)` | Describe and clear a pending Java exception; returns whether one was pending |
+
+Calling a method of a custom `MainActivity` from `android_main()` code:
+
+```cpp
+#include <sbt/jni.hpp>
+
+void show_keyboard(android_app *app)
+{
+    sbt::jni::ScopedEnv scoped(app->activity->vm);
+    if (!scoped)
+        return;
+    JNIEnv *env = scoped.get();
+    jclass clazz = env->GetObjectClass(app->activity->clazz);
+    jmethodID method = env->GetMethodID(clazz, "showSoftInput", "()V");
+    if (method != nullptr)
+        env->CallVoidMethod(app->activity->clazz, method);
+    (void)sbt::jni::clear_exception(env);
+    env->DeleteLocalRef(clazz);
+}
+```
+
+Hand-written `JNIEXPORT` functions must use the JNI-mangled namespace: `_` in the package becomes `_1` (`com.my_app` -> `Java_com_my_1app_MainActivity_...`). The terminal bridge gets this from sbt automatically.
+
 ## Troubleshooting
 
 ### "SDK location not found"
@@ -389,6 +427,10 @@ export ANDROID_SDK_PATH=/path/to/android-sdk
 ### Gradle version mismatch
 
 AGP 9.1.0 requires Gradle 9.x. Check with `gradle --version`.
+
+### `JdkImageTransform` / `jlink` failure
+
+`Execution failed for JdkImageTransform ... core-for-system-modules.jar` with jlink reporting `cannot find the build signature in the java.base` means Gradle runs on a JDK newer than AGP supports (seen with JDK 27 and AGP 9.1.0). Build with JDK 17 (`JAVA_HOME=/usr/lib/jvm/java-17-openjdk make ...`). A build that once succeeded can keep passing from Gradle's caches and fail again after `make clean`.
 
 ### Missing NDK
 

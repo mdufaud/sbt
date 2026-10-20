@@ -26,6 +26,7 @@ import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
+import java.util.concurrent.Executors
 
 class TerminalActivity : Activity() {
     private lateinit var rootLayout: LinearLayout
@@ -39,13 +40,16 @@ class TerminalActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
 
     private var nativeThread: Thread? = null
+    @Volatile
     private var processRunning = false
+    // One writer thread keeps stdin lines ordered and serializes the final close
+    private val stdinWriter = Executors.newSingleThreadExecutor()
+    @Volatile
     private var stdinPipeFd: Int = -1
     private var userScrolling = false
 
-    // Output batching to avoid flooding UI thread
+    // Output batching to avoid flooding UI thread; flushPending is guarded by outputBuffer
     private val outputBuffer = StringBuilder()
-    @Volatile
     private var flushPending = false
 
     // ANSI SGR parser state, carried across flushes
@@ -100,12 +104,7 @@ class TerminalActivity : Activity() {
         try {
             setupUI()
             val argsStr = intent.getStringExtra("restart_args")
-            val args = if (!argsStr.isNullOrEmpty()) {
-                argsStr.split(Regex("\\s+")).toTypedArray()
-            } else {
-                arrayOf()
-            }
-            launchNative(args)
+            launchNative(splitArgs(argsStr ?: ""))
         } catch (e: Throwable) {
             showError("Activity setup failed", e)
         }
@@ -113,10 +112,31 @@ class TerminalActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (stdinPipeFd >= 0) {
-            nativeCloseStdin(stdinPipeFd)
-            stdinPipeFd = -1
+        val fd = stdinPipeFd
+        stdinPipeFd = -1
+        if (fd >= 0) {
+            stdinWriter.execute { nativeCloseStdin(fd) }
         }
+        stdinWriter.shutdown()
+    }
+
+    // Whitespace-separated, with '...' and "..." grouping (no escapes inside quotes)
+    private fun splitArgs(text: String): Array<String> {
+        val args = mutableListOf<String>()
+        val current = StringBuilder()
+        var inArg = false
+        var quote: Char? = null
+        for (c in text) {
+            when {
+                quote != null && c == quote -> quote = null
+                quote != null -> current.append(c)
+                c == '\'' || c == '"' -> { quote = c; inArg = true }
+                c.isWhitespace() -> if (inArg) { args.add(current.toString()); current.setLength(0); inArg = false }
+                else -> { current.append(c); inArg = true }
+            }
+        }
+        if (inArg) args.add(current.toString())
+        return args.toTypedArray()
     }
 
     private fun launchNative(args: Array<String>) {
@@ -322,9 +342,10 @@ class TerminalActivity : Activity() {
     private fun sendStdinLine() {
         val text = inputField.text.toString()
         inputField.text.clear()
-        if (processRunning && stdinPipeFd >= 0) {
+        val fd = stdinPipeFd
+        if (processRunning && fd >= 0) {
             val line = text + "\n"
-            Thread { nativeWriteStdin(stdinPipeFd, line) }.start()
+            stdinWriter.execute { nativeWriteStdin(fd, line) }
         }
     }
 
@@ -355,10 +376,10 @@ class TerminalActivity : Activity() {
     private fun flushOutput() {
         val chunk: String
         synchronized(outputBuffer) {
+            flushPending = false
             chunk = outputBuffer.toString()
             outputBuffer.clear()
         }
-        flushPending = false
         if (chunk.isNotEmpty()) {
             outputView.append(ansiToSpannable(chunk))
             trimOutput()
@@ -413,7 +434,7 @@ class TerminalActivity : Activity() {
                 i++ // lone ESC, drop
                 continue
             }
-            run.append(c)
+            if (c != '\u0000') run.append(c)
             i++
         }
         flushRun()
@@ -437,11 +458,13 @@ class TerminalActivity : Activity() {
 
     @Suppress("unused")
     fun appendOutput(text: String) {
+        val schedule: Boolean
         synchronized(outputBuffer) {
             outputBuffer.append(text)
-        }
-        if (!flushPending) {
+            schedule = !flushPending
             flushPending = true
+        }
+        if (schedule) {
             handler.postDelayed({ flushOutput() }, 32)
         }
     }
