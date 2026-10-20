@@ -560,7 +560,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `j=number` | logical cores - 1 | SCons parallel jobs. |
 | `repeat=number` | | Repeat each test the requested number of times. |
 | `jtest=number` | off | Run each test binary as `number` concurrent gtest shards (`GTEST_TOTAL_SHARDS` / `GTEST_SHARD_INDEX`, like `ctest -j`); modules stay sequential. Output is shown per module once all its shards finished. Ignored under gdb and on web/android. Tests sharing a fixed port or file must tolerate concurrent runs. |
-| `test_timeout=seconds` | non-interactive goals (`itest`, `iasantest`, ...): `test_timeout` of `app.py`, else `300`; interactive goals: off | Stop each test binary (each shard with `jtest`) after `seconds`: `SIGTERM`, then `SIGKILL` 10 s later; the module fails and the recap says it timed out. `0` disables it. Ignored under gdb. |
+| `test_timeout=seconds` | non-interactive goals (`itest`, `iasantest`, ...): `test_timeout` of `app.py`, else `300`; interactive goals: off | Stop each test binary (each shard with `jtest`) after `seconds`: `SIGTERM`, then `SIGKILL` 10 s later, to its whole process group on non-interactive goals and to the binary alone on interactive ones (which keep the terminal); the module fails and the recap says it timed out. `0` disables it. Ignored under gdb. |
 | `brief=1` | off | Keep passing test output in logs and show failures in the console. |
 | `env=path` | `env.py` | Load the named environment module instead of the default project `env.py`. |
 | `dist=type` | | Select a distribution type (`tar`, `apt`, `pacman`, or `docker`). |

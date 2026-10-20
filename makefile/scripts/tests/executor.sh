@@ -149,15 +149,20 @@ if [ "${JTEST:-0}" -gt 1 ] 2>/dev/null; then
 fi
 
 # per test binary (per shard with jtest): test_timeout= wins, else non-interactive
-# runs take app.test_timeout or 5 minutes; 0 disables it. --foreground keeps
-# interactive tests on the tty, -k kills what ignores SIGTERM
+# runs take app.test_timeout or 5 minutes; 0 disables it. -k kills what ignores
+# SIGTERM. Non-interactive runs kill the whole process group: a child left alive
+# keeps the log pipe open. Interactive ones keep the tty (--foreground), child included.
 test_timeout="${TEST_TIMEOUT:-}"
 if [ -z "$test_timeout" ] && [ -n "${TEST_NONINTERACTIVE:-}" ]; then
     test_timeout="${TEST_APP_TIMEOUT:-300}"
 fi
 timeout_wrapper=
 if [ -n "$test_timeout" ] && [ "$test_timeout" != "0" ] && [ "${DEBUGGER:-}" != "gdb" ]; then
-    timeout_wrapper="timeout --foreground -k 10 $test_timeout"
+    if [ -n "${TEST_NONINTERACTIVE:-}" ]; then
+        timeout_wrapper="timeout -k 10 $test_timeout"
+    else
+        timeout_wrapper="timeout --foreground -k 10 $test_timeout"
+    fi
 fi
 
 perf_wrapper=
