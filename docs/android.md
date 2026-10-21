@@ -64,7 +64,7 @@ sudo pacman -S gradle
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `ANDROID_NDK_PATH` | _(none)_ | **yes** | Path to NDK (e.g. `/path/to/android-sdk/ndk/28.0.13004108`) |
-| `ANDROID_SDK_PATH` | `/path/to/android-sdk` | recommended | Path to SDK root |
+| `ANDROID_SDK_PATH` | _(none)_ | for APKs | Path to SDK root, passed to Gradle as `ANDROID_HOME` and `ANDROID_SDK_ROOT` |
 | `JAVA_HOME` | _(auto-detected)_ | if multiple JDKs | JDK 17+ for Gradle |
 | `ANDROID_API` | `24` | no | Minimum Android API level |
 
@@ -419,7 +419,7 @@ Hand-written `JNIEXPORT` functions must use the JNI-mangled namespace: `_` in th
 
 ### "SDK location not found"
 
-Set `ANDROID_SDK_PATH`:
+Set `ANDROID_SDK_PATH` (sbt passes it to Gradle as `ANDROID_HOME` and `ANDROID_SDK_ROOT`):
 ```bash
 export ANDROID_SDK_PATH=/path/to/android-sdk
 ```

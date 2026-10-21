@@ -571,7 +571,12 @@ def build_apk(staging_dir, apk_output_path, build_type="debug", gradle_cache_dir
     Returns 0 on success, non-zero on failure.
     """
     gradle_env = os.environ.copy()
-    gradle_env["ANDROID_SDK_PATH"] = builder.get_android_sdk_root()
+    sdk_root = builder.get_android_sdk_root()
+    gradle_env["ANDROID_SDK_PATH"] = sdk_root
+    # AGP never reads ANDROID_SDK_PATH and fails when ANDROID_HOME and ANDROID_SDK_ROOT differ
+    if sdk_root:
+        gradle_env["ANDROID_HOME"] = sdk_root
+        gradle_env["ANDROID_SDK_ROOT"] = sdk_root
     java_home = builder.get_java_home()
     if java_home:
         gradle_env["JAVA_HOME"] = java_home
