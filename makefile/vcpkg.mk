@@ -132,7 +132,7 @@ endif
 
 dep: sbt_dep
 	$(eval BUILD_CMD_LINE = \
-			modules=$(modules)$(m) \
+			modules=$(or $(modules),$(m)) \
 			test=$(test) \
 			dist=$(dist) \
 			mode=$(mode) \

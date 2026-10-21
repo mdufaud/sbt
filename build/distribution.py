@@ -89,7 +89,7 @@ def create_apt_package(app, modules):
         dependencies, missing_dep = sbt_modules.get_modules_packages(app, "apt", modules_extlibs)
         if missing_dep:
             logger.warning("apt packages not found for: {}".format(", ".join(missing_dep)))
-    except SystemExit as err:
+    except (SystemExit, RuntimeError) as err:
         logger.error(err)
         exit(1)
     maintainers = getattr(app, "maintainers", None)
@@ -163,7 +163,7 @@ def create_pacman_package(app, modules):
         dependencies, missing_dep = sbt_modules.get_modules_packages(app, "pacman", modules_extlibs)
         if missing_dep:
             logger.warning("pacman packages not found for: {}".format(", ".join(missing_dep)))
-    except SystemExit as err:
+    except (SystemExit, RuntimeError) as err:
         logger.error(err)
         exit(1)
     pacman_path = join(_b.build_dist_path, "pacman", "{}-{}".format(app.name, app.version))
@@ -362,7 +362,11 @@ def create_docker_package(app, modules):
         build_extlibs = dict(modules_extlibs)
         build_extlibs.update(demo_extlibs)
         # Build stage: packages for builder_pm
-        build_deps, missing_build = sbt_modules.get_modules_packages(app, builder_pm, build_extlibs)
+        if hasattr(app, "{}_packages".format(builder_pm)):
+            build_deps, missing_build = sbt_modules.get_modules_packages(app, builder_pm, build_extlibs)
+        else:
+            build_deps = {}
+            missing_build = list(build_extlibs.keys())
         # Runtime stage: packages for runtime_pm — demo_extlibs excluded (header-only / build tools)
         runtime_conf_name = "{}_packages".format(runtime_pm)
         if hasattr(app, runtime_conf_name):

@@ -36,7 +36,7 @@ install: confirm_install
 	$(QUIET) $(call echo_log_info,makefile,installing librairies: ${LIB_PATH} -> $(INSTALL_LIB_DEST))
 	$(QUIET) for path in `ls -A $(LIB_PATH) 2>/dev/null`; do \
 		dest=$(INSTALL_LIB_DEST)/$$path; \
-		install -D --compare --mode=755 "$(LIB_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=755 "$(LIB_PATH)/$$path" "$$dest" || exit 1; \
 		echo "$$dest" >> $(INSTALLED_FILES_DESTINATION); \
 	done
 ifeq ($(INSTALL_NO_EXTLIBS),)
@@ -45,7 +45,7 @@ ifeq ($(INSTALL_NO_EXTLIBS),)
 	$(QUIET) $(call echo_log_info,makefile,installing extlibs: ${EXTLIB_LIB_PATH} -> $(INSTALL_LIB_DEST))
 	$(QUIET) for path in `ls -A $(EXTLIB_LIB_PATH) 2>/dev/null | grep '\.so'`; do \
 		dest=$(INSTALL_LIB_DEST)/$$path; \
-		install -D --compare --mode=755 "$(EXTLIB_LIB_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=755 "$(EXTLIB_LIB_PATH)/$$path" "$$dest" || exit 1; \
 		echo "$$dest" >> $(INSTALLED_FILES_DESTINATION); \
 	done
 endif
@@ -53,14 +53,14 @@ endif
 	$(QUIET) $(call echo_log_info,makefile,installing binaries: ${BIN_PATH} -> $(INSTALL_BIN_DEST))
 	$(QUIET) for path in `ls -A $(BIN_PATH) 2>/dev/null`; do \
 		dest=$(INSTALL_BIN_DEST)/$$path; \
-		install -D --compare --mode=755 "$(BIN_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=755 "$(BIN_PATH)/$$path" "$$dest" || exit 1; \
 		echo "$$dest" >> $(INSTALLED_FILES_DESTINATION); \
 	done
 # install demo bins
 	$(QUIET) $(call echo_log_info,makefile,installing demos: ${DEMO_PATH} -> $(INSTALL_BIN_DEST))
 	$(QUIET) for path in `ls -A $(DEMO_PATH) 2>/dev/null`; do \
 		dest=$(INSTALL_BIN_DEST)/$$path; \
-		install -D --compare --mode=755 "$(DEMO_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=755 "$(DEMO_PATH)/$$path" "$$dest" || exit 1; \
 		echo "$$dest" >> $(INSTALLED_FILES_DESTINATION); \
 	done
 # getting all root directories of built resources for future removal
@@ -72,7 +72,7 @@ endif
 	$(QUIET) $(call echo_log_info,makefile,installing resources: ${ETC_PATH} -> $(INSTALL_ETC_DEST))
 	$(QUIET) for path in `find $(ETC_PATH) -type f 2>/dev/null | sed "s|${ETC_PATH}/||g"`; do \
 		dest="$(INSTALL_ETC_DEST)/$$path"; \
-		install -D --compare --mode=744 "$(ETC_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=744 "$(ETC_PATH)/$$path" "$$dest" || exit 1; \
 	done
 # getting all root directories of built includes for future removal
 	$(QUIET) for path in `ls -A $(INCLUDE_PATH) 2>/dev/null`; do \
@@ -83,7 +83,7 @@ endif
 	$(QUIET) $(call echo_log_info,makefile,installing headers: ${INCLUDE_PATH} -> $(INSTALL_INCLUDE_DEST))
 	$(QUIET) for path in `find $(INCLUDE_PATH) -type f 2>/dev/null | sed "s|${INCLUDE_PATH}/||g"`; do \
 		dest=$(INSTALL_INCLUDE_DEST)/$$path; \
-		install -D --compare --mode=744 "$(INCLUDE_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=744 "$(INCLUDE_PATH)/$$path" "$$dest" || exit 1; \
 	done
 # getting all root directories of built share for future removal
 	$(QUIET) for path in `ls -A $(SHARE_PATH) 2>/dev/null`; do \
@@ -94,7 +94,7 @@ endif
 	$(QUIET) $(call echo_log_info,makefile,installing shared: ${SHARE_PATH} -> $(INSTALL_SHARE_DEST))
 	$(QUIET) for path in `find $(SHARE_PATH) -type f 2>/dev/null | sed "s|${SHARE_PATH}/||g"`; do \
 		dest=$(INSTALL_SHARE_DEST)/$$path; \
-		install -D --compare --mode=744 "$(SHARE_PATH)/$$path" "$$dest"; \
+		install -D --compare --mode=744 "$(SHARE_PATH)/$$path" "$$dest" || exit 1; \
 	done
 
 endif # install

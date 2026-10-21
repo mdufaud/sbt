@@ -223,7 +223,8 @@ run_sharded()
         printf '# shard %s/%s\n' "$((i + 1))" "$shards" >> "${log_dir}/${module}/output.log"
         cat "${shard_dir}/${i}.log" >> "${log_dir}/${module}/output.log"
         code="$(cat "${shard_dir}/${i}.exit" 2>/dev/null || echo 1)"
-        if [ "$rc" = "0" ]; then
+        # a crash/timeout code outranks a plain test failure (1)
+        if [ "$rc" = "0" ] || { [ "$rc" = "1" ] && [ "$code" != "0" ]; }; then
             rc="$code"
         fi
     done

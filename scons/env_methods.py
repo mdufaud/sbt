@@ -354,14 +354,12 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
 
     lib_path = os_path.join(builder.build_lib_path, name)
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
-    if cpp_mods:
-        scons_cpp_modules.enable(self, ctx)
 
     if (static is not None and static is True) or builder.build_static_libs:
-        objects = scons_cpp_modules.build_objects(self, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
+        objects = scons_cpp_modules.build_split_objects(self, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         lib = NoCache(self.StaticLibrary(lib_path, objects, **build_kwargs))
     else:
-        objects = scons_cpp_modules.build_objects(self, src, ctx, shared=True, cpp_modules=cpp_mods, **build_kwargs)
+        objects = scons_cpp_modules.build_split_objects(self, src, ctx, shared=True, cpp_modules=cpp_mods, **build_kwargs)
         lib_env = self.Clone()
         lib_env.Append(LINKFLAGS=_origin_rpath_flags(lib_env, builder.build_lib_path))
         if static_libs:

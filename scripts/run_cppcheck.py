@@ -295,10 +295,12 @@ def run_module(
     except OSError:
         issues = 0
 
+    crashed = False
     try:
         errors = sum(1 for e in ET.parse(xml_out).getroot().iter("error") if e.get("severity") == "error")
     except (OSError, ET.ParseError):
         errors = 0
+        crashed = rc != 0
 
     if issues > 0:
         logger.warning(f"Result: {issues} issue(s), {errors} error(s)")
@@ -314,7 +316,7 @@ def run_module(
             stderr=subprocess.DEVNULL,
         )
 
-    return {"errors": errors, "issues": issues, "rc": rc, "report": xml_out}
+    return {"errors": errors, "issues": issues, "rc": rc, "crashed": crashed, "report": xml_out}
 
 
 def write_summary(cppcheck_dir: str, results: dict, threshold: int | None, rc: int) -> None:
@@ -446,8 +448,11 @@ def run(
 
     if fail_under is not None:
         errors = sum(r["errors"] for r in results.values())
-        rc = 1 if errors > fail_under else 0
-        if rc:
+        crashed = [m for m, r in results.items() if r["crashed"]]
+        rc = 1 if errors > fail_under or crashed else 0
+        if crashed:
+            logger.error(f"cppcheck failed: no report produced for {', '.join(crashed)}")
+        elif rc:
             logger.error(f"cppcheck failed: {errors} error(s) > cppcheck_fail_under={fail_under}")
         else:
             logger.info(f"cppcheck passed: {errors} error(s) <= cppcheck_fail_under={fail_under}")

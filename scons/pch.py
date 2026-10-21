@@ -31,6 +31,15 @@ _IGNORED_PREFIXES = ("-W", "-I", "-isystem", _CLANG_VALIDATE)
 _IGNORED_WITH_ARG = {"-I", "-isystem", "-idirafter", "-iquote", "-include", "-include-pch"}
 
 
+# removes the contiguous token run: a lone "-include" may belong to a user flag
+def _drop_flag(flags, flag):
+    n = len(flag)
+    for i in range(len(flags) - n + 1):
+        if list(flags[i:i + n]) == list(flag):
+            return list(flags[:i]) + list(flags[i + n:])
+    return list(flags)
+
+
 def backend(env, ctx):
     """Classify the compiler as ('gcc'|'clang', version banner), or None when
     unsupported (zig, emscripten) or when the probe fails. The probe strips a
@@ -133,8 +142,7 @@ def consume(env, dep, ctx):
             env["APP_MODULE_NAME"], current["module"], dep))
     env["PCH"] = header
     verify(env)
-    for token in header["flag"]:
-        env.AppendUnique(CXXFLAGS=[token])
+    env.Append(CXXFLAGS=list(header["flag"]))
     _patch_ccache(env["ENV"])
 
 
@@ -147,7 +155,7 @@ def use_test_header(env, ctx):
     header = ctx.state.pch_test_headers.get(current["module"])
     if header is None:
         return
-    env["CXXFLAGS"] = [f for f in env["CXXFLAGS"] if f not in current["flag"]]
+    env["CXXFLAGS"] = _drop_flag(env["CXXFLAGS"], current["flag"])
     env["PCH"] = header
     env.Append(CXXFLAGS=header["flag"])
 
@@ -180,7 +188,7 @@ def strip(env, log=True):
     if log:
         logger.info("pch: C++ module units of '{}' skip header module '{}'".format(
             env.get("APP_MODULE_NAME"), instance["module"]))
-    env["CXXFLAGS"] = [f for f in env["CXXFLAGS"] if f not in instance["flag"]]
+    env["CXXFLAGS"] = _drop_flag(env["CXXFLAGS"], instance["flag"])
     del env["PCH"]
 
 

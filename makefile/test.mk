@@ -7,7 +7,7 @@
 #   test                     build modules, tests and run tests ([modules|all|ls] [filter] [repeat=x] [jtest=x])
 #   itest nointeract_test    same with stdin closed (non-interactive)
 #   gdbtest gdb_test         run tests under gdb
-#   asantest asan_test iasantest nointeract_san_test          address sanitizer
+#   asantest asan_test iasantest nointeract_asan_test          address sanitizer
 #   ubsantest ubsan_test iubsantest nointeract_ubsan_test    undefined behavior sanitizer
 #   tsantest tsan_test itsantest nointeract_tsan_test         thread sanitizer
 #   lsantest lsan_test ilsantest nointeract_lsan_test         leak sanitizer
@@ -194,5 +194,7 @@ $(eval $(call mk_nointeract_debug_test,lsan_test,ilsantest))
 $(eval $(call mk_nointeract_debug_test,msan_test,imsantest))
 $(eval $(call mk_nointeract_debug_test,hwasan_test,ihwasantest))
 $(eval $(call mk_nointeract_debug_test,perf_test,iperftest))
+ivaltest: ivtest
+ilvaltest: iltest
 
 endif # test

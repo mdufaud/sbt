@@ -255,10 +255,13 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
     target_ns_path = os.path.join(tmp_dir, "app", "src", "main", "java",
                                   *config["namespace"].split("."))
     if default_ns_path != target_ns_path and os.path.isdir(default_ns_path):
-        os.makedirs(os.path.dirname(target_ns_path), exist_ok=True)
-        shutil.move(default_ns_path, target_ns_path)
+        # staged out first: the target may be a parent or a child of the template package
+        staged_ns_path = os.path.join(tmp_dir, ".sbt_namespace")
+        shutil.move(default_ns_path, staged_ns_path)
         # Clean up empty parent dirs left by the move
         _remove_empty_dirs(os.path.join(tmp_dir, "app", "src", "main", "java", TEMPLATE_NAMESPACE.split(".")[0]))
+        os.makedirs(os.path.dirname(target_ns_path), exist_ok=True)
+        shutil.move(staged_ns_path, target_ns_path)
 
     # Step 2: If terminal mode, remove NativeActivity-specific files (none in default)
     # If NativeActivity mode, remove terminal-specific files

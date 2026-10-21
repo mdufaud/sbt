@@ -217,7 +217,8 @@ def probe_libstdcxx_dir(machine=None, libc_=None):
         )
         if result.returncode == 0:
             path = result.stdout.strip()
-            if path:
+            # gcc echoes the bare name back when the library is not found
+            if os.path.isabs(path):
                 return os.path.abspath(os.path.dirname(path))
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass

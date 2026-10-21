@@ -215,12 +215,13 @@ def _resolve_all_deps(deps_dict, deps_dir, force, resolved=None, seen_urls=None)
         try:
             dep_app = loader.load_app_from_path(dep_app_path, project_root=dep_path)
             transitive = getattr(dep_app, "sbt_dependencies", {})
-            if transitive:
-                logger.info(f"dependency '{name}' has {len(transitive)} transitive SBT dep(s)")
-                _resolve_all_deps(transitive, deps_dir, force, resolved, seen_urls)
-                resolved[name]["transitive_deps"] = list(transitive.keys())
         except Exception as e:
             logger.warning(f"could not load app.py from dependency '{name}': {e}")
+            continue
+        if transitive:
+            logger.info(f"dependency '{name}' has {len(transitive)} transitive SBT dep(s)")
+            _resolve_all_deps(transitive, deps_dir, force, resolved, seen_urls)
+            resolved[name]["transitive_deps"] = list(transitive.keys())
 
     # Topological sort: leaf-first
     order = []

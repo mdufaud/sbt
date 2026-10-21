@@ -6,6 +6,7 @@ Source priority: overlay-ports vcpkg.json > vcpkg ports dir vcpkg.json > "unknow
 
 import json
 import os
+import re
 import sys
 
 # Strong copyleft: all linked/derived code must be released under the same license.
@@ -28,11 +29,12 @@ _WEAK_COPYLEFT: set[str] = {
 def _single_license_level(spdx: str) -> str | None:
     """Return 'strong', 'weak', or None for a single SPDX identifier."""
     upper = spdx.upper()
+    # boundary keeps "GPL-3.0" from matching inside "LGPL-3.0"
     for keyword in _STRONG_COPYLEFT:
-        if keyword.upper() in upper:
+        if re.search(r"(?<![A-Z0-9])" + re.escape(keyword.upper()), upper):
             return "strong"
     for keyword in _WEAK_COPYLEFT:
-        if keyword.upper() in upper:
+        if re.search(r"(?<![A-Z0-9])" + re.escape(keyword.upper()), upper):
             return "weak"
     return None
 

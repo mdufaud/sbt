@@ -86,7 +86,8 @@ def resolve_modules_dependencies(modules):
         # Adds conditional dependencies if they are in the current build
         conditional_depends = conf.get("conditional-depends", [])
         if conditional_depends:
-            conf['depends'].extend([cond_mod for cond_mod in conditional_depends if cond_mod in modules])
+            conf['depends'].extend([cond_mod for cond_mod in conditional_depends
+                                    if cond_mod in modules and cond_mod not in conf['depends']])
         conf["declared-depends"] = conf['depends'][:]
         # Get dependency tree
         __rec_fill_module_real_depends(modules, name, conf)

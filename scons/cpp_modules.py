@@ -126,17 +126,17 @@ def build_objects(env, src, ctx, shared=False, cpp_modules=[], **kwargs):
     return objects + prebuilt
 
 
-def build_split_objects(env, src, ctx, cpp_modules=[], **kwargs):
+def build_split_objects(env, src, ctx, shared=False, cpp_modules=[], **kwargs):
     """Compile *src* like build_objects, enabling the C++ module flags only on
-    the sources that import a module. Those also drop the precompiled header;
+    the sources that import or implement a module. Those also drop the precompiled header;
     every other source keeps *env* untouched, precompiled header included."""
     if not cpp_modules:
-        return build_objects(env, src, ctx, **kwargs)
+        return build_objects(env, src, ctx, shared=shared, **kwargs)
     sources, prebuilt = split_inputs(env, src)
-    importing = [s for s in sources if build_cpp_modules.imports_module(env.File(s).srcnode().abspath)]
+    importing = [s for s in sources if build_cpp_modules.uses_modules(env.File(s).srcnode().abspath)]
     plain = [s for s in sources if s not in importing]
     module_env = env.Clone()
     enable(module_env, ctx)
     scons_pch.strip(module_env)
-    return (build_objects(module_env, importing, ctx, cpp_modules=cpp_modules, **kwargs)
-            + build_objects(env, plain, ctx, **kwargs) + prebuilt)
+    return (build_objects(module_env, importing, ctx, shared=shared, cpp_modules=cpp_modules, **kwargs)
+            + build_objects(env, plain, ctx, shared=shared, **kwargs) + prebuilt)

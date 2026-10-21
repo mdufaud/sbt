@@ -57,7 +57,8 @@ def _is_known_conf_key(key, modes):
         return True
     parts = k.split("-")
     while parts:
-        if parts[0] in SELECTOR_TOKENS:
+        # architectures dict also holds machines app.py registers after import
+        if parts[0] in SELECTOR_TOKENS or parts[0] in architectures.architectures:
             parts.pop(0)
         elif parts[0] == "mode" and len(parts) > 1 and parts[1] in modes:
             parts.pop(0)

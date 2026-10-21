@@ -17,6 +17,10 @@ def imports_module(path):
     with open(path, 'r', encoding='utf-8') as fd:
         return any(_import_re.match(line) for line in fd)
 
+def uses_modules(path):
+    with open(path, 'r', encoding='utf-8') as fd:
+        return any(_import_re.match(line) or _module_re.match(line) for line in fd)
+
 def resolve_source_path(module_dir, source):
     source_path = str(source)
     if os.path.isabs(source_path):

@@ -108,7 +108,7 @@ def build_vcpkg_manifest(app, extlibs: dict, needs_display_libs: bool = False) -
     if builder.is_cross_building():
         no_default_features_add = getattr(app, "vcpkg_no_default_features_add", {})
         requires_map = getattr(app, "vcpkg_no_default_features_requires", {})
-    for name in no_default_features:
+    for name in sorted(no_default_features):
         # skip force-add unless a requirer is in the build (see vcpkg_no_default_features_requires)
         requirers = requires_map.get(name)
         if requirers is not None and not any(req in extlibs for req in requirers):
