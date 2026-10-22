@@ -31,6 +31,7 @@ _site_scons = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(_
 if _site_scons not in sys.path:
     sys.path.insert(0, _site_scons)
 
+from sbt.core import architectures
 from sbt.core import loader
 from sbt.core import builder
 from sbt.core import logger
@@ -259,6 +260,9 @@ def _compute_dep_build_args(dep_config):
             value = getattr(builder, arg, None)
         if value is not None and str(value):
             make_args[arg] = str(value)
+    # a derived libc (android bionic) is not a valid libc= option: the dep derives it from platform
+    if make_args.get("libc") not in architectures.LIBCS:
+        make_args.pop("libc", None)
 
     # Static needs special handling (it's a bool in builder)
     if builder.build_static_libs:
