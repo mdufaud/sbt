@@ -152,7 +152,7 @@ def get_progress_bar_function(targets):
 
     return progress_function
 
-def build_print_built(binaries, demos, tests):
+def build_print_built(binaries, demos, tests, benches):
     for modname, binpaths in binaries.items():
         logger.info("module {} binaries:".format(modname))
         for binpath in binpaths:
@@ -167,6 +167,11 @@ def build_print_built(binaries, demos, tests):
         logger.info("module {} tests:".format(modname))
         for testpath in testpaths:
             logger.info("\t{}".format(testpath["path"]))
+
+    for modname, benchpaths in benches.items():
+        logger.info("module {} benches:".format(modname))
+        for benchpath in benchpaths:
+            logger.info("\t{}".format(benchpath["path"]))
 
 def __print_err(*args):
     print(*args, file=sys.stderr)

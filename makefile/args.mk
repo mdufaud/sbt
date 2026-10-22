@@ -18,7 +18,7 @@ MAKEARG_COMMANDS := mod dep pkgdep demo dist cppcheck \
 # args.mk routes the goal with it (exact match; a goal merely *containing*
 # "test", e.g. `make latest`, must not enter it) and makefile/test.mk derives
 # its .PHONY from it. A new test goal is added here and nowhere else.
-TEST_GOALS := test itest nointeract_test gdbtest gdb_test \
+TEST_GOALS := test itest nointeract_test gdbtest gdb_test bench \
 	asantest asan_test iasantest nointeract_asan_test \
 	ubsantest ubsan_test iubsantest nointeract_ubsan_test \
 	tsantest tsan_test itsantest nointeract_tsan_test \

@@ -9,6 +9,7 @@ Public API (methods available in module scons.py scripts):
   env.build_lib(src, name=None, static=None, **kwargs)
   env.build_bin(src, name=None, libs=[], android_dir=None, static_stdlib=False, static_libs=False, **kwargs)
   env.build_test(src, name=None, libs=[], static_stdlib=False, static_libs=False, **kwargs)
+  env.build_bench(src, name=None, libs=[], static_stdlib=False, static_libs=False, **kwargs)
   env.build_demo(src, name, libs=[], android_dir=None, static_stdlib=False, static_libs=False, **kwargs)
   # static_libs: True (wrap all LIBS, requires .a files) or list[str] (wrap named libs only)
   env.build_demos(srcs, **kwargs)
@@ -428,9 +429,19 @@ def _add_test_app_conf(env, ctx):
 
 
 def _build_test(self, src, name, libs, ctx, **kwargs):
+    return _build_test_program(self, src, name, libs, ctx, builder.build_tests,
+                               builder.build_test_path, "test", ctx.state.generated_tests, **kwargs)
+
+
+def _build_bench(self, src, name, libs, ctx, **kwargs):
+    return _build_test_program(self, src, name, libs, ctx, builder.build_benches,
+                               builder.build_bench_path, "bench", ctx.state.generated_benches, **kwargs)
+
+
+def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, registry, **kwargs):
     static_stdlib = kwargs.pop("static_stdlib", False)
     static_libs = kwargs.pop("static_libs", False)
-    if not builder.build_tests:
+    if not enabled:
         return None
     module_name = self['APP_MODULE_NAME']
     if ctx.modules_lst and module_name not in ctx.modules_lst:
@@ -457,14 +468,14 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
     if static_libs:
         _wrap_libs_static(test_env, static_libs)
 
-    _apply_bin_linkflags(self, test_env, os_path.join(builder.build_test_path, "bin"))
+    _apply_bin_linkflags(self, test_env, os_path.join(out_path, "bin"))
 
     if name is None:
         name = self["APP_MODULE_FORMAT_NAME"]
     # test suffix, not bin suffix: on web the runner executes the .js node
     # binary, not the .html page a plain bin produces
     name += ctx.test_ext
-    test_path = os_path.join(builder.build_test_path, "bin", name)
+    test_path = os_path.join(out_path, "bin", name)
 
     if cpp_mods or test_env.get("PCH"):
         objects = scons_cpp_modules.build_split_objects(test_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
@@ -475,7 +486,7 @@ def _build_test(self, src, name, libs, ctx, **kwargs):
         _track_time(self, test, ctx)
 
     ctx.state.add_targets(src)
-    ctx.state.add_generated("test", ctx.state.generated_tests, module_name, name, test_path)
+    ctx.state.add_generated(gentype, registry, module_name, name, test_path)
     return test
 
 
@@ -746,6 +757,9 @@ def register_methods(base_env, ctx):
     def build_test(self, src, name=None, libs=[], **kwargs):
         return _build_test(self, src, name, libs, ctx, **kwargs)
 
+    def build_bench(self, src, name=None, libs=[], **kwargs):
+        return _build_bench(self, src, name, libs, ctx, **kwargs)
+
     def build_demo(self, src, name, libs=[], android_dir=None, **kwargs):
         return _build_demo(self, src, name, libs, android_dir, ctx, **kwargs)
 
@@ -800,6 +814,7 @@ def register_methods(base_env, ctx):
     base_env.AddMethod(build_lib, "build_lib")
     base_env.AddMethod(build_bin, "build_bin")
     base_env.AddMethod(build_test, "build_test")
+    base_env.AddMethod(build_bench, "build_bench")
     base_env.AddMethod(build_demo, "build_demo")
     base_env.AddMethod(build_demos, "build_demos")
     base_env.AddMethod(build_cpp_modules, "build_cpp_modules")

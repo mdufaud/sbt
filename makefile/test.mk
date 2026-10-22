@@ -18,6 +18,7 @@
 #   lvaltest valgrind_leak_test ilvaltest nointeract_valgrind_leak_test   valgrind leak check
 #   ttest strace_test ittest nointeract_strace_test           strace
 #   ivtest iltest             non-interactive valgrind / valgrind leak check
+#   bench                    build (mode=release unless given) and run bench binaries from <build>/bench
 #   perftest perf_test iperftest nointeract_perf_test   perf record each test binary (native only), lists the slowest tests
 .PHONY: $(TEST_GOALS)
 
@@ -85,7 +86,7 @@ SBT_ENV_JSON_PATH := $(BUILD_PATH)/sbt_env.json
 
 test: test = 1
 test: build
-	$(call mk_log_info,makefile,starting tests in build: $(TEST_PATH))
+	$(call mk_log_info,makefile,starting tests in build: $(if $(TEST_BENCH),$(BENCH_PATH),$(TEST_PATH)))
 	$(QUIET) $(if $(TEST_COVERAGE_RESET),find '$(OBJ_PATH)' -name '*.gcda' -delete)
 	$(if $(TEST_RUNNER),$(call mk_log_warning,makefile,test runner '$(TEST_RUNNER)' active - DEBUGGER and sanitizer options disabled (unsupported under emulation)))
 	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
@@ -95,7 +96,8 @@ test: build
 					DEBUGGER_ARGS="$(if $(TEST_RUNNER),,$(DEBUGGER_ARGS))" \
 					TEST_ARGS="$(TEST_ARGS)" \
 					REPEAT="$(repeat)" \
-					JTEST="$(jtest)" \
+					JTEST="$(if $(TEST_BENCH),,$(jtest))" \
+					TEST_BENCH="$(TEST_BENCH)" \
 					TEST_TIMEOUT="$(test_timeout)" \
 					TEST_NONINTERACTIVE="$(TEST_NONINTERACTIVE)" \
 					TEST_PERF="$(TEST_PERF)" \
@@ -122,6 +124,10 @@ valgrind_leak_test: DEBUGGER_ARGS = --leak-check=full --show-leak-kinds=all --tr
 valgrind_leak_test: DEBUGGER = valgrind
 valgrind_leak_test: test
 lvaltest: valgrind_leak_test
+
+bench: bench = 1
+bench: TEST_BENCH = 1
+bench: test
 
 perf_test: TEST_PERF = 1
 perf_test: test

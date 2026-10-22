@@ -51,8 +51,15 @@ SBT_CLI := $(SBT_PATH)/scripts/cli_helper.py
 BUILD_ENTRY_PATH := $(PROJECT_ROOT_PATH)/build
 MAKEVARS_PATH := $(BUILD_ENTRY_PATH)/makevars.mk
 
+# make bench measures release code unless mode= is given; set before makevars, which fixes the build path
+ifeq ($(firstword $(MAKECMDGOALS))$(origin mode),benchundefined)
+mode := release
+export mode
+SBT_GOAL_OVERRIDES := mode=release
+endif
+
 MAKEVARS_TMP := $(shell mkdir -p '$(BUILD_ENTRY_PATH)' && mktemp '$(BUILD_ENTRY_PATH)/makevars.XXXXXX')
-MAKEVARS_RESULT := $(shell env $(MAKEOVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > '$(MAKEVARS_TMP)' && echo ok || { rm -f '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)'; echo failed; })
+MAKEVARS_RESULT := $(shell env $(MAKEOVERRIDES) $(SBT_GOAL_OVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > '$(MAKEVARS_TMP)' && echo ok || { rm -f '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)'; echo failed; })
 ifeq ($(MAKEVARS_RESULT),ok)
 MAKEVARS_FRAGMENT := $(file <$(MAKEVARS_TMP))
 $(shell mv '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)' || rm -f '$(MAKEVARS_PATH)')
@@ -208,6 +215,7 @@ help:
 	$(call mk_log_info,makefile,build with code coverage instrumentation: coverage=1)
 	$(call mk_log_info,makefile,run cppcheck static analysis: make cppcheck [m=modules])
 	$(call mk_log_info,makefile,run tests with coverage and emit cobertura xml: make covtest [m=modules])
+	$(call mk_log_info,makefile,build and run benchmarks (mode=release unless given): make bench [m=modules] [t=filter])
 	$(call mk_log_info,makefile,profile tests with perf and list the slowest ones (native only): make perftest [m=modules] [jtest=x])
 	$(call mk_log_info,makefile,build with static libs: static=1)
 	$(call mk_log_info,makefile,build specific release: mode=debug|release)
@@ -370,6 +378,7 @@ clean:
 	rm -rf $(SHARE_PATH)
 	rm -rf $(BIN_PATH)
 	rm -rf $(TEST_PATH)
+	rm -rf $(BENCH_PATH)
 	rm -rf $(EXPORT_PATH)
 	rm -rf $(DEMO_PATH)
 	rm -rf $(BUILD_PATH)/gradle

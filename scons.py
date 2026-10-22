@@ -81,6 +81,7 @@ if verbose:
     logger.info("machine: " + builder.build_machine)
     logger.info("mode: " + build_mode)
     logger.info("tests: " + (builder.build_tests and "yes" or "no"))
+    logger.info("benches: " + (builder.build_benches and "yes" or "no"))
     logger.info("libraries: " + (builder.build_static_libs and "static" or "shared"))
     logger.info("address sanitizer: " + (builder.build_asan and "yes" or "no"))
     logger.info("undefined behavior sanitizer: " + (builder.build_ubsan and "yes" or "no"))
@@ -499,7 +500,8 @@ if builder.build_combined and build_state.lib_objects:
 if builder.build_platform == "windows" and not builder.build_static_libs:
     dll_dependency_bins = [
         artefact["path"]
-        for registry in (build_state.generated_bins, build_state.generated_tests, build_state.generated_demos)
+        for registry in (build_state.generated_bins, build_state.generated_tests, build_state.generated_demos,
+                         build_state.generated_benches)
         for artefacts in registry.values()
         for artefact in artefacts
     ]
@@ -534,7 +536,8 @@ import atexit
 
 def merge_built():
     merged = {}
-    for d in [build_state.generated_bins, build_state.generated_tests, build_state.generated_demos]:
+    for d in [build_state.generated_bins, build_state.generated_tests, build_state.generated_demos,
+              build_state.generated_benches]:
         for key, value in d.items():
             merged.setdefault(key, []).extend(value)
     return merged
@@ -559,7 +562,8 @@ def after_build():
         scons_compile_time.print_report(compilation_db_path)
     if success:
         scons_utils.build_print_built(
-            build_state.generated_bins, build_state.generated_demos, build_state.generated_tests
+            build_state.generated_bins, build_state.generated_demos, build_state.generated_tests,
+            build_state.generated_benches
         )
         builder.generate_runner()
         # optional user callback, independent from the built-artefacts report

@@ -35,6 +35,8 @@ def main():
     ex("EXTLIB_LIB_PATH", b + "/" + p["extlib_lib"])
     ex("TEST_PATH", test_path)
     ex("TEST_BIN_PATH", b + "/" + p["test_bin"])
+    ex("BENCH_PATH", b + "/" + p["bench"])
+    ex("BENCH_BIN_PATH", b + "/" + p["bench_bin"])
     ex("EXPORT_PATH", b + "/" + p["export"])
     ex("TEST_RUNNER", d["test"]["runner"])
     ex("TEST_BIN_EXT", d["test"]["bin_ext"])

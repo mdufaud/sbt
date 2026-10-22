@@ -238,6 +238,7 @@ Modes are project-defined (`app.modes`) and always `mode-` prefixed. SBT generat
 | `env.build_lib(sources, name=, static=, static_libs=[])` | Build shared/static library. Returns lib node. `static_libs=[...]` whole-archives static-only vcpkg `.a` (owning a process-global) into the module DLL on the windows dynamic build — PE has no symbol interposition. |
 | `env.build_bin(sources, name=, libs=[], static_libs=)` | Build executable binary. `static_libs=True\|[...]` wraps libs in `-Bstatic/-Bdynamic`. |
 | `env.build_test(sources, libs=[])` | Build test binary (only if `test=1`) |
+| `env.build_bench(sources, libs=[])` | Build benchmark binary into `<build_path>/bench/bin/` (only if `bench=1`), same options and gtest/test conf as `build_test` |
 | `env.build_demo(source, name=, libs=[], android_dir=None)` | Build demo (only if `demo=1`) |
 | `env.build_demos(sources)` | Build multiple demos (one per source file) |
 | `env.build_cpp_modules(sources, module_name=, imports=[])` | Build C++20 module interfaces and register them for later imports |
@@ -548,6 +549,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `combined=1` | off | Also produce a **single final library** `<app.name>` in `build/<...>/lib/` containing the objects of **all** built modules. Static (`.a`) when `static=1`, shared otherwise. Module-internal libs are absorbed; external libs (vcpkg/system) remain link-time dependencies for the consumer. Handy for distributing a one-file SDK. |
 | `test=1` / `t=1` | off | Build test binaries. |
 | `demo=1` | off | Build demo executables. |
+| `bench=1` | off | Build benchmark binaries (`env.build_bench`). Set by `make bench`. |
 | `compile_commands=1` | **on** | Generate `compile_commands.json` (clangd) in the build directory. `compile_commands=0` to disable. |
 | `nocache=1` | off | Disable ccache for this build. |
 | `compile_time=1` | off | Report per compile unit at the end of the build: clang wall time and top headers (inclusive, from `-ftime-trace`), line count after preprocessing. Needs `compile_commands=1`. Adds `-ftime-trace` (clang, ndk, emscripten, filc) or `-ftime-report` (gcc, mingw, zig; output inline, no per-unit time). Toggling it rebuilds every unit once. ccache hits report no time. |
@@ -671,6 +673,7 @@ make lsantest / make ilsantest      # Tests with LSan (standalone)
 make msantest / make imsantest      # Tests with MSan (clang only)
 make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
+make bench m=app                    # Build (mode=release) + run benchmark binaries
 make perftest m=app                   # perf record each test binary + the slowest tests
 make iperftest                       # Same, non-interactive
 make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
@@ -696,7 +699,7 @@ override any engine value):
 
 1. **Engine paths and Python**: `APP_NAME`, `PROJECT_ROOT_PATH`, `MODULES_PATH`, `BUILD_PATH`,
    `LIB_PATH`, `BIN_PATH`, `ETC_PATH`, `SHARE_PATH`, `EXTLIB_PATH`, `EXTLIB_LIB_PATH`,
-   `TEST_PATH`, `TEST_BIN_PATH`, `EXPORT_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`, `PYTHON_BIN`
+   `TEST_PATH`, `TEST_BIN_PATH`, `BENCH_PATH`, `BENCH_BIN_PATH`, `EXPORT_PATH`, `TEST_RUNNER`, `TEST_BIN_EXT`, `PYTHON_BIN`
    (the interpreter used for the test run).
 2. **Engine platform facts**: `SBT_PLATFORM`, `SBT_MACHINE`, `SBT_LIBC`, `SBT_MODE`,
    `SBT_COMPILER`, `SBT_TRIPLET`, `SBT_LIBS_TYPE`, `SBT_CROSS` (`1`/`0`) — what the test
@@ -751,6 +754,22 @@ Each test run starts by deleting the previous `reports/*.xml`, `report.xml` and 
 
 When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a markdown table of modules and the
 failed and skipped tests is appended to it.
+
+#### Benchmarks
+
+`make bench` builds tests and benchmarks (`test=1 bench=1`), then runs the benchmark binaries
+from `<build_path>/bench/bin/` exactly like `make test` runs the tests: module and `t=`
+filters, `ls`, `repeat=`, `test_timeout=`, runners, recap. Logs, reports and `summary.json`
+land under `<build_path>/bench/`. `jtest=` is ignored (shards would skew the timings).
+
+Without `mode=` on the command line `make bench` uses `mode=release` (a `-O0` measure is
+meaningless), so its dependencies need `make dep test mode=release` once, and `build/last`
+then points to the release tree. Benchmarks are gtest binaries: each `TEST` measures and logs,
+asserting only sanity.
+
+```python
+env.build_bench(Glob('bench/*.cpp'), libs=[env.module_format_name()])
+```
 
 #### Profiling the tests (perf)
 

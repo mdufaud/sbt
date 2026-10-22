@@ -61,7 +61,7 @@ def _machine(value):
         ", ".join(architectures.architectures), ", ".join(architectures.machine_aliases))
 
 _BOOL_OPTIONS = (
-    "asan", "combined", "compile_commands", "compile_time", "coverage", "demo",
+    "asan", "bench", "combined", "compile_commands", "compile_time", "coverage", "demo",
     "docker_build_local", "fgit", "hwasan", "lsan", "msan", "nocache", "static",
     "test", "tsan", "ubsan", "v", "verbose",
 )

@@ -8,6 +8,10 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
+if [ -n "${TEST_BENCH:-}" ]; then
+    TEST_PATH="$BENCH_PATH"
+    TEST_BIN_PATH="$BENCH_BIN_PATH"
+fi
 SANITIZER_FAILURE_PATTERN='^(==[0-9]+==)?(ERROR|WARNING|SUMMARY): (AddressSanitizer|LeakSanitizer|ThreadSanitizer|UndefinedBehaviorSanitizer|MemorySanitizer|HWAddressSanitizer):|^.+:[0-9]+(:[0-9]+)?: runtime error:'
 # before the profile source: profiles reference $REPORT_DIR; unset-only default
 # so an explicit empty TEST_REPORT_FLAGS stays an opt-out

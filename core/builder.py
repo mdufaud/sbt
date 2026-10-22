@@ -327,6 +327,9 @@ def has_test():
 def has_demo():
     return utils.is_opt("demo")
 
+def has_bench():
+    return utils.is_opt("bench")
+
 def is_address_sanitizer():
     return utils.is_opt("asan")
 
@@ -476,6 +479,7 @@ build_coverage = is_coverage()
 build_combined = has_combined()
 build_tests = has_test()
 build_demo = has_demo()
+build_benches = has_bench()
 build_verbose = has_verbose()
 logger.set_verbose(build_verbose)
 
@@ -528,6 +532,7 @@ build_hdr_path = join(build_path, "include")
 build_etc_path = join(build_path, "etc")
 build_share_path = join(build_path, "share")
 build_test_path = join(build_path, "test")
+build_bench_path = join(build_path, "bench")
 build_export_path = join(build_path, "export")
 build_demo_path = join(build_path, "demo")
 build_obj_path = join(build_path, "obj")
@@ -851,6 +856,8 @@ def copy_dll_to_build(generated_lld_binaries):
         build_need_dll_path_lst.append(build_demo_path)
     if build_tests:
         build_need_dll_path_lst.append(join(build_test_path, "bin"))
+    if build_benches:
+        build_need_dll_path_lst.append(join(build_bench_path, "bin"))
 
     do_copy = False
     for path in build_need_dll_path_lst:
