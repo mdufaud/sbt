@@ -94,7 +94,8 @@ if verbose:
 # Resolve cross-project `project:module` depends into synthetic local modules
 try:
     modules.resolve_external_modules(
-        app, os_path.join(builder.build_root_path, ".sbt-deps"), modules_options
+        app, os_path.join(builder.build_root_path, ".sbt-deps"), modules_options,
+        builder.build_extlib_lib_path
     )
 except RuntimeError as e:
     logger.error(str(e))

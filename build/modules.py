@@ -284,18 +284,30 @@ def closure_depth(modules, modname):
     """
     return len(modules.get(modname, {}).get("depends", []))
 
-def _external_module_closure(dep_modules, dep_app_name, modname):
+def _built_lib_names(lib_dir):
+    """Link names of the libraries in lib_dir, or None when it does not exist yet."""
+    if not lib_dir or not os.path.isdir(lib_dir):
+        return None
+    names = set()
+    for f in os.listdir(lib_dir):
+        stem = f.split(".", 1)[0]
+        names.add(stem[3:] if stem.startswith("lib") else stem)
+    return names
+
+def _external_module_closure(dep_modules, dep_app_name, modname, built_libs=None):
     """Ordered static link closure for an external project module.
 
     The module's own archive first, then its transitive dependency archives
     (deepest first), then the module's resolved export libs (extlibs).
-    MinGW-safe consumer-before-provider order.
+    MinGW-safe consumer-before-provider order. With `built_libs`, depends
+    that built no library (header modules) are left out.
     """
     conf = dep_modules[modname]
     depends = conf.get("depends", [])
     ordered = sorted(depends, key=lambda d: closure_depth(dep_modules, d), reverse=True)
     libs = [f"{dep_app_name}_{modname}"]
-    libs += [f"{dep_app_name}_{d}" for d in ordered]
+    libs += [f"{dep_app_name}_{d}" for d in ordered
+             if built_libs is None or f"{dep_app_name}_{d}" in built_libs]
     libs += conf.get("libs", [])
     libs += conf.get("_resolved_export_libs", [])
     return dedupe_keep_order(libs)
@@ -311,13 +323,15 @@ def _load_external_app(deps_dir, project):
         raise RuntimeError(
             "could not load external dependency '{}' app.py: {}".format(project, e))
 
-def resolve_external_modules(app, deps_dir, modules_options):
+def resolve_external_modules(app, deps_dir, modules_options, extlib_lib_dir=None):
     """Resolve `project:module` depends into synthetic local module entries.
 
     Scans every (conditional) module's depends for `project:module` refs, loads
     each referenced dependency's app.py from deps_dir/<project>/app.py, resolves
     that project's module export graph, and injects a synthetic entry keyed
     `project:module` into app.modules carrying the full ordered link closure.
+    `extlib_lib_dir` (where `make dep` installed the dependency libraries)
+    drops depends that built no library from the closure.
     """
     if not hasattr(app, "modules"):
         return
@@ -331,6 +345,7 @@ def resolve_external_modules(app, deps_dir, modules_options):
             refs.setdefault(project, set()).add(mod)
     if not refs:
         return
+    built_libs = _built_lib_names(extlib_lib_dir)
     for project, wanted in refs.items():
         dep_app = _load_external_app(deps_dir, project)
         dep_modules = build_modules_conf(dep_app)
@@ -339,7 +354,7 @@ def resolve_external_modules(app, deps_dir, modules_options):
             if mod not in dep_modules:
                 raise RuntimeError(
                     "external module '{}:{}' does not exist in dependency '{}'".format(project, mod, project))
-            closure = _external_module_closure(dep_modules, dep_app.name, mod)
+            closure = _external_module_closure(dep_modules, dep_app.name, mod, built_libs)
             mconf = dep_modules[mod]
             app.modules["{}:{}".format(project, mod)] = {
                 "external": True,
