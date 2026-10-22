@@ -76,12 +76,16 @@ def build_vcpkg_manifest(app, extlibs: dict, needs_display_libs: bool = False) -
         skip_libs = set(getattr(app, "extlibs_skip", []))
         skip_libs |= set(getattr(app, f"extlibs_skip_{builder.build_platform}", []))
         no_default_features = set(getattr(app, "vcpkg_no_default_features", [])) - skip_libs
+    # Native builds too, only for the listed libs the build actually uses (never force-added)
+    native_no_default_features = set()
+    if not builder.is_cross_building():
+        native_no_default_features = set(getattr(app, "vcpkg_no_default_features_native", []))
 
     for libname, libversion in sorted(extlibs.items()):
         dep = {"name": libname}
         if libname in features:
             dep["features"] = features[libname]
-        if libname in no_default_features:
+        if libname in no_default_features or libname in native_no_default_features:
             dep["default-features"] = False
             no_default_features.discard(libname)
         if len(dep) > 1:

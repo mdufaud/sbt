@@ -109,6 +109,14 @@ vcpkg_no_default_features = [
 
 Applied only in cross-builds. These libs get `"default-features": false` in the vcpkg manifest.
 
+`vcpkg_no_default_features_native` does the same for native builds, only for listed libs the build uses:
+
+```python
+vcpkg_no_default_features_native = [
+    "libusb",  # the project names devices itself: no libudev link
+]
+```
+
 ## Skipping libraries per platform
 
 ```python
