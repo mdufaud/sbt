@@ -92,6 +92,7 @@ _LOCAL_OPTIONS = {
     "jtest": _count,
     "repeat": _count,
     "test_timeout": _seconds,
+    "bench_threshold": _count,
     "PORT": _port,
     "SBT_LOCK_TIMEOUT": _seconds,
 }

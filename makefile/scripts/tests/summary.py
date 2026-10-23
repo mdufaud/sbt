@@ -26,6 +26,10 @@ SLOWEST_COUNT = 10
 TIMEOUT_EXIT_CODES = (124, 137)
 BENCH_TIME_UNITS = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+# make bench prints the same recap over benchmarks
+BENCH = bool(os.environ.get("TEST_BENCH"))
+NOUN = "benchmark" if BENCH else "test"
+NOUNS = NOUN + "s"
 
 
 def read_exit_code(log_dir):
@@ -120,13 +124,14 @@ def merge_shard_reports(test_path, app_name, module):
 
 
 def parse_bench_report(path):
-    """Google Benchmark JSON: one case per iteration run, its time = iterations x real_time."""
+    """Google Benchmark JSON: one case per benchmark, its repetitions merged (time summed,
+    failed when one errored, skipped when all were); aggregates (mean, median...) left out."""
     try:
         with open(path) as f:
             runs = json.load(f).get("benchmarks", [])
     except (OSError, ValueError):
         return None
-    cases = []
+    cases = {}
     for run in runs:
         if run.get("run_type", "iteration") != "iteration":
             continue
@@ -136,12 +141,41 @@ def parse_bench_report(path):
         elif run.get("skipped"):
             status = "skipped"
         unit = BENCH_TIME_UNITS.get(run.get("time_unit", "ns"), 1e-9)
-        cases.append({
-            "name": run.get("name", ""),
-            "time": run.get("iterations", 0) * run.get("real_time", 0) * unit,
-            "status": status,
-        })
-    return cases
+        name = run.get("name", "")
+        case = cases.setdefault(name, {"name": name, "time": 0.0, "status": status})
+        case["time"] += run.get("iterations", 0) * run.get("real_time", 0) * unit
+        for rank in ("failed", "passed"):
+            if rank in (case["status"], status):
+                case["status"] = rank
+                break
+    return list(cases.values())
+
+
+def bench_context(path):
+    try:
+        with open(path) as f:
+            return json.load(f).get("context", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def bench_warnings(contexts):
+    """Measurement caveats read from the reports' context (machine facts + the profile's sbt_* keys)."""
+    warnings = []
+    if any(c.get("cpu_scaling_enabled") for c in contexts):
+        warnings.append("CPU frequency scaling is enabled: timings drift with the governor")
+    if any(c.get("aslr_enabled") for c in contexts):
+        warnings.append("ASLR is enabled: memory layout, so cache behavior, changes between runs")
+    if any(c.get("library_build_type") == "debug" for c in contexts):
+        warnings.append("the benchmark library is a debug build")
+    for mode in sorted({c["sbt_mode"] for c in contexts if c.get("sbt_mode") not in (None, "", "release")}):
+        warnings.append("built in mode={}, not release".format(mode))
+    loaded = [c for c in contexts if c.get("num_cpus") and (c.get("load_avg") or [0])[0] > c["num_cpus"] / 2]
+    if loaded:
+        worst = max(loaded, key=lambda c: c["load_avg"][0])
+        warnings.append("load average {:.1f} on {} cpus: other processes competed with the benchmarks".format(
+            worst["load_avg"][0], worst["num_cpus"]))
+    return warnings
 
 
 def parse_report(path):
@@ -208,7 +242,7 @@ class Colors:
         self.reset = "\033[0m" if enabled else ""
 
 
-def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, crashed, timed_out):
+def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, crashed, timed_out, warnings):
     c = Colors(sys.stdout.isatty())
     label = {
         "passed": c.green + "OK     " + c.reset,
@@ -217,7 +251,7 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, 
     }
     width = max(len(module) for module in modules)
     print("")
-    print("==================== TEST RESULTS ====================")
+    print("==================== {} RESULTS ====================".format("BENCH" if BENCH else "TEST"))
     for module, info in modules.items():
         color = c.red if info["status"] == "failed" else c.green
         interruption = "  {}{}{}".format(c.red, info["interruption"], c.reset) if info["interruption"] else ""
@@ -226,14 +260,14 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, 
                 color, module, width, c.reset, info["exit_code"], interruption))
             continue
         t = info["tests"]
-        print("{}{:<{}}{}  {:>5} tests  {:>4} skipped  {:>4} failed  {:>8.3f} s{}".format(
+        print(("{}{:<{}}{}  {:>5} " + NOUNS + "  {:>4} skipped  {:>4} failed  {:>8.3f} s{}").format(
             color, module, width, c.reset, t["total"], t["skipped"], t["failed"], t["time"], interruption))
         for case in info["cases"]:
             if verbose or case["status"] != "passed":
                 print("  {} {:8.3f} s  {}".format(label[case["status"]], case["time"], case["name"]))
     print("------------------------------------------------------")
     color = c.red if totals["failed"] or failed_tests else c.green
-    print("{}total: {} tests, {} passed, {} failed, {} skipped, {:.3f} s{}".format(
+    print(("{}total: {} " + NOUNS + ", {} passed, {} failed, {} skipped, {:.3f} s{}").format(
         color, totals["total"], totals["passed"], totals["failed"], totals["skipped"],
         totals["time"], c.reset))
     if failed_tests:
@@ -248,21 +282,25 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, 
         width = max(len(e["module"]) for e in entries)
         for e in entries:
             print("  {}{:<{}}  {}  {}{}".format(c.red, e["module"], width, modules[e["module"]]["interruption"],
-                                               ", ".join(e["tests"]) or "test unknown (no start line in the log)",
+                                               ", ".join(e["tests"]) or NOUN + " unknown (no start line in the log)",
                                                c.reset))
     if slowest:
         print("slowest:")
         width = max(len(s["module"]) for s in slowest)
         for s in slowest:
             print("  {:8.3f} s  {:<{}}  {}".format(s["time"], s["module"], width, s["test"]))
+    if warnings:
+        print("warnings:")
+        for warning in warnings:
+            print("  {}{}{}".format(c.yellow, warning, c.reset))
     print("======================================================")
 
 
-def write_step_summary(path, app_name, modules, totals, failed_tests, skipped_tests):
+def write_step_summary(path, app_name, modules, totals, failed_tests, skipped_tests, warnings):
     lines = [
-        "## Tests: {}".format(app_name),
+        "## {}: {}".format(NOUNS.capitalize(), app_name),
         "",
-        "| Module | Status | Tests | Failed | Skipped | Time (s) |",
+        "| Module | Status | " + NOUNS.capitalize() + " | Failed | Skipped | Time (s) |",
         "|---|---|---|---|---|---|",
     ]
     for module, info in modules.items():
@@ -275,15 +313,18 @@ def write_step_summary(path, app_name, modules, totals, failed_tests, skipped_te
                 module, status, t["total"], t["failed"], t["skipped"], t["time"]))
     lines += [
         "",
-        "**Total**: {} tests, {} passed, {} failed, {} skipped, {:.3f} s".format(
+        ("**Total**: {} " + NOUNS + ", {} passed, {} failed, {} skipped, {:.3f} s").format(
             totals["total"], totals["passed"], totals["failed"], totals["skipped"], totals["time"]),
     ]
     if failed_tests:
-        lines += ["", "### Failed tests", ""]
+        lines += ["", "### Failed " + NOUNS, ""]
         lines += ["- `{}` {}".format(f["module"], f["test"]) for f in failed_tests]
     if skipped_tests:
-        lines += ["", "### Skipped tests", ""]
+        lines += ["", "### Skipped " + NOUNS, ""]
         lines += ["- `{}` {}".format(s["module"], s["test"]) for s in skipped_tests]
+    if warnings:
+        lines += ["", "### Warnings", ""]
+        lines += ["- {}".format(w) for w in warnings]
     with open(path, "a") as f:
         f.write("\n".join(lines) + "\n\n")
 
@@ -303,6 +344,7 @@ def main():
     failed_tests = []
     skipped_tests = []
     parsed_reports = []
+    contexts = []
     for module in module_list:
         log_dir = os.path.join(test_path, "logs", module)
         log = os.path.join(log_dir, "output.log")
@@ -311,6 +353,8 @@ def main():
         report = os.path.join(test_path, "reports", "{}_{}".format(app_name, module))
         report += ".json" if os.path.isfile(report + ".json") else ".xml"
         root, cases = parse_report(report)
+        if report.endswith(".json") and cases is not None:
+            contexts.append(bench_context(report))
         failed = module in flagged or exit_code != 0
         outcome = module_outcome(exit_code, module in flagged, timeout)
         unfinished = unfinished_tests(log) if outcome in ("crashed", "timeout") else []
@@ -386,16 +430,19 @@ def main():
     }
     if slowest:
         summary["slowest"] = slowest
+    warnings = bench_warnings(contexts)
+    if BENCH:
+        summary["warnings"] = warnings
     with open(os.path.join(test_path, "summary.json"), "w") as f:
         json.dump(summary, f, indent=4)
         f.write("\n")
 
     if modules:
         print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0").casefold() not in ("", "0", "false"), slowest,
-                    crashed, timed_out)
+                    crashed, timed_out, warnings)
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary and modules:
-        write_step_summary(step_summary, app_name, modules, totals, failed_tests, skipped_tests)
+        write_step_summary(step_summary, app_name, modules, totals, failed_tests, skipped_tests, warnings)
 
 
 if __name__ == "__main__":

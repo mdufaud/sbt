@@ -564,6 +564,9 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `repeat=number` | | Repeat each test the requested number of times. |
 | `jtest=number` | off | Run each test binary as `number` concurrent gtest shards (`GTEST_TOTAL_SHARDS` / `GTEST_SHARD_INDEX`, like `ctest -j`); modules stay sequential. Output is shown per module once all its shards finished. Ignored under gdb and on web/android. Tests sharing a fixed port or file must tolerate concurrent runs. |
 | `test_timeout=seconds` | non-interactive goals (`itest`, `iasantest`, ...): `test_timeout` of `app.py`, else `300`; interactive goals: off | Stop each test binary (each shard with `jtest`) after `seconds`: `SIGTERM`, then `SIGKILL` 10 s later, to its whole process group on non-interactive goals and to the binary alone on interactive ones (which keep the terminal); the module fails and the recap says it timed out. `0` disables it. Ignored under gdb. |
+| `save=name` | | `make bench`: keep the run's reports as baseline `name` (`<build_path>/bench/baselines/name/`, a path with a `/`). See [Benchmarks](#benchmarks). |
+| `compare=name` | | `make bench`: compare the run with baseline `name` (`BENCH COMPARE` block, `<build_path>/bench/compare.json`). |
+| `bench_threshold=percent` | `5` | `make bench compare=`: change past which a benchmark regresses or improves. |
 | `brief=1` | off | Keep passing test output in logs and show failures in the console. |
 | `env=path` | `env.py` | Load the named environment module instead of the default project `env.py`. |
 | `dist=type` | | Select a distribution type (`tar`, `apt`, `pacman`, or `docker`). |
@@ -673,7 +676,8 @@ make lsantest / make ilsantest      # Tests with LSan (standalone)
 make msantest / make imsantest      # Tests with MSan (clang only)
 make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
-make bench m=app                    # Build (mode=release) + run benchmark binaries
+make bench m=app                    # Build (mode=release) + run benchmark binaries only
+make bench compare=main             # ... and compare with a saved baseline (save=main)
 make perftest m=app                   # perf record each test binary + the slowest tests
 make iperftest                       # Same, non-interactive
 make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
@@ -758,18 +762,23 @@ failed and skipped tests is appended to it.
 
 #### Benchmarks
 
-`make bench` builds tests and benchmarks (`test=1 bench=1`), then runs the benchmark binaries
-from `<build_path>/bench/bin/` exactly like `make test` runs the tests: module and `t=`
-filters, `ls`, `repeat=`, `test_timeout=`, runners, recap. Logs, reports and `summary.json`
-land under `<build_path>/bench/`. `jtest=` is ignored (shards would skew the timings).
+`make bench` builds the benchmarks alone (`bench=1`; tests too only with `test=1` on the command
+line), then runs the binaries from `<build_path>/bench/bin/` through the test executor, with the
+test goal's options: modules (`m=`, `make bench MODULE`), filter (`t=`, `make bench MODULE
+FILTER`), `ls`, `repeat=`, `test_timeout=`, `v=`, `TEST_ARGS`, `DEBUGGER`, runners. Logs,
+reports and `summary.json` land under `<build_path>/bench/`; the console says `benchmarking
+module`, `BENCH RESULTS`. `jtest=` is ignored (shards would skew the timings), `brief=` too
+(Google Benchmark has no brief output).
 
 Without `mode=` on the command line `make bench` and `make dep bench` use `mode=release` (a
 `-O0` measure is meaningless): run `make dep bench` once, and `build/last` then points to the
-release tree.
+release tree. `make dep bench` installs the test deps too: the vcpkg manifest is per build
+variant, so a bench-only manifest would remove the test deps from the release tree (and
+`make dep test mode=release` alone removes the bench deps).
 
 Benchmarks are [Google Benchmark](https://github.com/google/benchmark) binaries: the app
-declares the library like its test framework, and `env.build_bench` links `bench_libs` on top
-of the test conf (`benchmark_main` provides `main`):
+declares the library like its test framework, and `env.build_bench` builds with the `bench_*`
+app conf and the module's pch, nothing from the test conf (`benchmark_main` provides `main`):
 
 ```python
 # app.py
@@ -782,13 +791,41 @@ env.build_bench(Glob('bench/*.cpp'), libs=[env.module_format_name()])
 ```
 
 The run uses the `benchmark` profile whatever `TEST_PROFILE` and the `.env` flag overrides
-say: `t=` becomes `--benchmark_filter` (a regex), `repeat=N` `--benchmark_repetitions=N`,
-`ls` `--benchmark_list_tests`, `brief=` is ignored. Each module writes
-`<build_path>/bench/reports/<app>_<module>.json` (`--benchmark_out`), which the recap and
-`summary.json` read: one case per benchmark run, its time the whole run (iterations x real
-time), repetition aggregates left out. Google Benchmark exits `0` on `SkipWithError`: the
-profile's `TEST_LOG_FAILURE_PATTERN` (`ERROR OCCURRED:`) fails the module instead, and a
-`SkipWithMessage` run counts as skipped.
+say: `t=` becomes `--benchmark_filter` (a regex), `repeat=N` `--benchmark_repetitions=N`
+(mean, median, stddev and cv rows), `ls` `--benchmark_list_tests`. `--benchmark_context` stores
+the build facts in every report: `sbt_mode`, `sbt_compiler`, `sbt_triplet`, `sbt_libs_type` and
+`git_rev` (`git describe --always --dirty` of the project, when it is a git checkout).
+
+Each module writes `<build_path>/bench/reports/<app>_<module>.json` (`--benchmark_out`), which
+the recap and `summary.json` read: one case per benchmark, its repetitions merged (time summed,
+iterations x real time; aggregates such as `_mean` left out). Google Benchmark exits `0` on
+`SkipWithError`: the profile's `TEST_LOG_FAILURE_PATTERN` (`ERROR OCCURRED:`) fails the module
+instead, and a `SkipWithMessage` run counts as skipped. The recap ends with `warnings:` (also
+`warnings` in `summary.json`) when the reports' context makes the timings unreliable: CPU
+frequency scaling or ASLR enabled, a debug build of the benchmark library, a mode other than
+`release`, a load average above half the CPUs.
+
+```bash
+make bench save=main                 # Run, then keep the reports as baseline "main"
+make bench compare=main              # Run, then compare with baseline "main"
+make bench compare=main repeat=5     # Medians of 5 repetitions, noise-aware
+make bench compare=main save=main    # Compare, then replace the baseline
+make bench compare=ci/bench-main     # A path (relative to the project) instead of a name
+```
+
+`save=NAME` copies the run's reports to `<build_path>/bench/baselines/NAME/` (a value with a
+`/` is a directory path) once every benchmark passed; `make clean` deletes the baselines with
+`<build_path>/bench/`. `compare=NAME` compares each benchmark's median real time with the
+baseline's: past `bench_threshold=` percent (default `5`) it is a `regression` or an
+`improvement`, unless the change stays within twice the repetitions' coefficient of variation
+(`noise`, needs `repeat=` >= 2); `new`, `removed` and `unmeasured` (errored or skipped on one
+side) complete the statuses. The `BENCH COMPARE` block lists the changed benchmarks (all with
+`v=1`), the counts, and the context keys that differ from the baseline (mode, compiler,
+triplet, libs type, CPU count, library version). It writes `<build_path>/bench/compare.json`
+(`baseline`, `threshold_percent`, `counts`, `context_mismatch`, `benchmarks`: `module`,
+`benchmark`, `status`, `baseline_ns`, `current_ns`, `delta`, `cpu_delta`, `noise`) and appends
+a table to `GITHUB_STEP_SUMMARY`. A regression does not fail the run: gate on `compare.json`;
+a baseline without report for the modules run does.
 
 #### Profiling the tests (perf)
 

@@ -461,11 +461,10 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
             )
     scons_utils.prepend_unique_paths(test_env, "CPPPATH", exported_test_cpppaths)
 
-    # benches layer bench_* on test_*: the test pch was compiled with the test flags
-    _add_phase_app_conf(test_env, ctx, "test")
-    if gentype == "bench":
-        _add_phase_app_conf(test_env, ctx, "bench")
-    scons_pch.use_test_header(test_env, ctx)
+    # benches take bench_* conf and the module pch only: they build without test=1
+    _add_phase_app_conf(test_env, ctx, gentype)
+    if gentype == "test":
+        scons_pch.use_test_header(test_env, ctx)
     scons_pch.verify(test_env)
 
     if static_libs:

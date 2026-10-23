@@ -84,9 +84,10 @@ MODULES_NAME_SPLIT := $(subst $(COMMA), ,$(MODULES_NAME))
 # (not at make parse time) so a plain `make` never touches the filesystem.
 SBT_ENV_JSON_PATH := $(BUILD_PATH)/sbt_env.json
 
-test: test = 1
+# make bench builds the benchmarks alone: test=1 only when given on the command line
+test: test = $(if $(TEST_BENCH),,1)
 test: build
-	$(call mk_log_info,makefile,starting tests in build: $(if $(TEST_BENCH),$(BENCH_PATH),$(TEST_PATH)))
+	$(call mk_log_info,makefile,$(if $(TEST_BENCH),starting benchmarks in build: $(BENCH_PATH),starting tests in build: $(TEST_PATH)))
 	$(QUIET) $(if $(TEST_COVERAGE_RESET),find '$(OBJ_PATH)' -name '*.gcda' -delete)
 	$(if $(TEST_RUNNER),$(call mk_log_warning,makefile,test runner '$(TEST_RUNNER)' active - DEBUGGER and sanitizer options disabled (unsupported under emulation)))
 	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
@@ -98,6 +99,9 @@ test: build
 					REPEAT="$(repeat)" \
 					JTEST="$(if $(TEST_BENCH),,$(jtest))" \
 					TEST_BENCH="$(TEST_BENCH)" \
+					BENCH_SAVE="$(save)" \
+					BENCH_COMPARE="$(compare)" \
+					BENCH_THRESHOLD="$(bench_threshold)" \
 					TEST_TIMEOUT="$(test_timeout)" \
 					TEST_NONINTERACTIVE="$(TEST_NONINTERACTIVE)" \
 					TEST_PERF="$(TEST_PERF)" \

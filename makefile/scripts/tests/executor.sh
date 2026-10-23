@@ -8,10 +8,16 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.env"
+RUN_NOUN=test
+RUN_NOUNS=tests
+RUN_VERB=testing
 if [ -n "${TEST_BENCH:-}" ]; then
     TEST_PATH="$BENCH_PATH"
     TEST_BIN_PATH="$BENCH_BIN_PATH"
     TEST_PROFILE=benchmark
+    RUN_NOUN=bench
+    RUN_NOUNS=benchmarks
+    RUN_VERB=benchmarking
 fi
 SANITIZER_FAILURE_PATTERN='^(==[0-9]+==)?(ERROR|WARNING|SUMMARY): (AddressSanitizer|LeakSanitizer|ThreadSanitizer|UndefinedBehaviorSanitizer|MemorySanitizer|HWAddressSanitizer):|^.+:[0-9]+(:[0-9]+)?: runtime error:'
 # before the profile source: profiles reference $REPORT_DIR; unset-only default
@@ -114,7 +120,7 @@ print_failures()
 
     if [ "${any_failure}" -eq 1 ]; then
         echo ""
-        echo "==================== TEST FAILURES ===================="
+        echo "==================== ${RUN_NOUN^^} FAILURES ===================="
         for module in $module_list;
         do
             if module_failed "${module}"; then
@@ -244,7 +250,8 @@ run_sharded()
 execute_tests()
 (
     rm -rf "$REPORT_DIR/shards"
-    rm -f "$REPORT_DIR"/*.xml "$REPORT_DIR"/*.json "$TEST_PATH/report.xml" "$TEST_PATH/summary.json"
+    rm -f "$REPORT_DIR"/*.xml "$REPORT_DIR"/*.json "$TEST_PATH/report.xml" "$TEST_PATH/summary.json" \
+        "$TEST_PATH/compare.json"
     for module in $module_list;
     do
         module_path=${MODULES_PATH:-$PROJECT_ROOT_PATH}/$module
@@ -287,8 +294,8 @@ execute_tests()
 
         echo ""
         echo "###################################################################################"
-        echo "# testing module: $module"
-        echo "# test command: $(echo "$cmd" | tr -s ' ')"
+        echo "# $RUN_VERB module: $module"
+        echo "# $RUN_NOUN command: $(echo "$cmd" | tr -s ' ')"
         if [ "$shards" -gt 1 ]; then
             echo "# shards: $shards"
         fi
@@ -319,14 +326,50 @@ execute_tests()
     print_failures
     local rc=$?
     write_summary
+    if [ -n "${TEST_BENCH:-}" ]; then
+        bench_baselines "$rc"
+        rc=$?
+    fi
     return $rc
 )
+
+# compare=NAME / save=NAME: a bare name lives in <bench>/baselines/, a path is used as is
+baseline_dir()
+{
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        */*) printf '%s\n' "$PROJECT_ROOT_PATH/$1" ;;
+        *) printf '%s\n' "$TEST_PATH/baselines/$1" ;;
+    esac
+}
+
+# compare first, so one run can compare with a baseline and replace it; a failed run is never saved
+bench_baselines()
+{
+    local rc="$1" dir
+    if [ -n "${BENCH_COMPARE:-}" ]; then
+        env -u PYTHONHOME "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/bench_compare.py" \
+            "$TEST_PATH" "$APP_NAME" "$(baseline_dir "$BENCH_COMPARE")" "${BENCH_THRESHOLD:-5}" $module_list || rc=1
+    fi
+    if [ -n "${BENCH_SAVE:-}" ]; then
+        dir="$(baseline_dir "$BENCH_SAVE")"
+        if [ "$rc" != "0" ]; then
+            echo "warning: bench baseline not saved to $dir: the run failed" >&2
+        elif mkdir -p "$dir" && cp "$REPORT_DIR"/*.json "$dir"/; then
+            echo "bench baseline saved: $dir"
+        else
+            echo "error: cannot save the bench baseline to $dir" >&2
+            rc=1
+        fi
+    fi
+    return "$rc"
+}
 
 list_tests()
 (
     modules=( $module_list )
     if [ ${#modules[@]} -eq 0 ]; then
-        echo "no test binaries found in ${TEST_BIN_PATH}" >&2
+        echo "no $RUN_NOUN binaries found in ${TEST_BIN_PATH}" >&2
         return 1
     fi
     modules_count=${#modules[@]}
@@ -335,7 +378,7 @@ list_tests()
     do
         if [ $modules_count -gt 1 ]; then
             echo ""
-            echo "Module $module tests:"
+            echo "Module $module $RUN_NOUNS:"
             echo ""
         fi
 
