@@ -422,10 +422,10 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     return result
 
 
-def _add_test_app_conf(env, ctx):
-    scons_utils.add_env_app_conf(ctx.app, env, "test")
+def _add_phase_app_conf(env, ctx, phase):
+    scons_utils.add_env_app_conf(ctx.app, env, phase)
     for app_conf in ctx.default_app_conf_to_get:
-        scons_utils.add_env_app_conf(ctx.app, env, "test", app_conf)
+        scons_utils.add_env_app_conf(ctx.app, env, phase, app_conf)
 
 
 def _build_test(self, src, name, libs, ctx, **kwargs):
@@ -461,7 +461,10 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
             )
     scons_utils.prepend_unique_paths(test_env, "CPPPATH", exported_test_cpppaths)
 
-    _add_test_app_conf(test_env, ctx)
+    # benches layer bench_* on test_*: the test pch was compiled with the test flags
+    _add_phase_app_conf(test_env, ctx, "test")
+    if gentype == "bench":
+        _add_phase_app_conf(test_env, ctx, "bench")
     scons_pch.use_test_header(test_env, ctx)
     scons_pch.verify(test_env)
 
@@ -551,7 +554,7 @@ def _build_header(self, src, ctx, test=False):
     if not builder.build_tests:
         return None
     test_env = self.Clone()
-    _add_test_app_conf(test_env, ctx)
+    _add_phase_app_conf(test_env, ctx, "test")
     return scons_pch.build_header(test_env, src, ctx, test=True)
 
 

@@ -106,7 +106,7 @@ def check_unknown_conf_keys(modules, modes):
 
 _APP_FLAG_SUFFIXES = tuple("_" + name.replace("-", "_") for name in CONF_FLAG_ENV)
 # app-only build-phase scopes prepended to flag attrs (e.g. test_libs, demo_web_link)
-_APP_CONF_SCOPES = frozenset(["test", "demo"])
+_APP_CONF_SCOPES = frozenset(["test", "demo", "bench"])
 
 def _is_known_app_conf_attr(attr, modes):
     dash = attr.replace("_", "-")

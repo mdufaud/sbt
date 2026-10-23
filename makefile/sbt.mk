@@ -51,11 +51,13 @@ SBT_CLI := $(SBT_PATH)/scripts/cli_helper.py
 BUILD_ENTRY_PATH := $(PROJECT_ROOT_PATH)/build
 MAKEVARS_PATH := $(BUILD_ENTRY_PATH)/makevars.mk
 
-# make bench measures release code unless mode= is given; set before makevars, which fixes the build path
-ifeq ($(firstword $(MAKECMDGOALS))$(origin mode),benchundefined)
+# make bench / make dep bench use release code unless mode= is given; set before makevars, which fixes the build path
+ifeq ($(origin mode),undefined)
+ifneq ($(filter bench dep_bench,$(word 1,$(MAKECMDGOALS)) $(word 1,$(MAKECMDGOALS))_$(word 2,$(MAKECMDGOALS))),)
 mode := release
 export mode
 SBT_GOAL_OVERRIDES := mode=release
+endif
 endif
 
 MAKEVARS_TMP := $(shell mkdir -p '$(BUILD_ENTRY_PATH)' && mktemp '$(BUILD_ENTRY_PATH)/makevars.XXXXXX')

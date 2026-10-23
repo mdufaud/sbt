@@ -136,6 +136,7 @@ dep: sbt_dep
 			verbose=$(verbose) \
 			pkgdep=$(pkgdep) \
 			demo=$(demo) \
+			bench=$(bench) \
 			libc=$(libc) \
 			cpu=$(cpu) \
 			with-system-packages=$(with-system-packages) \
@@ -167,6 +168,16 @@ MODULES_NAME := $(MAKEARG_3),$(m)
 dep: test = 1
 dep: modules = $(MODULES_NAME)
 test:
+	$(QUIET) echo > /dev/null
+endif
+
+ifeq ($(MAKEARG_2), bench)
+VCPKG_ACTION := fetch
+MODULES_NAME := $(MAKEARG_3),$(m)
+dep: test = 1
+dep: bench = 1
+dep: modules = $(MODULES_NAME)
+bench:
 	$(QUIET) echo > /dev/null
 endif
 

@@ -150,6 +150,9 @@ if pkg_manager_name:
     if builder.build_tests:
         test_extlibs = modules.get_extlibs_versions(app, getattr(app, "test_extlibs", []))
         deps.update(collect_packages(test_extlibs).keys())
+    if builder.build_benches:
+        bench_extlibs = modules.get_extlibs_versions(app, getattr(app, "bench_extlibs", []))
+        deps.update(collect_packages(bench_extlibs).keys())
     if builder.build_demo:
         demo_extlibs = modules.get_extlibs_versions(app, getattr(app, "demo_extlibs", []))
         deps.update(collect_packages(demo_extlibs).keys())

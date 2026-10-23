@@ -238,7 +238,7 @@ Modes are project-defined (`app.modes`) and always `mode-` prefixed. SBT generat
 | `env.build_lib(sources, name=, static=, static_libs=[])` | Build shared/static library. Returns lib node. `static_libs=[...]` whole-archives static-only vcpkg `.a` (owning a process-global) into the module DLL on the windows dynamic build — PE has no symbol interposition. |
 | `env.build_bin(sources, name=, libs=[], static_libs=)` | Build executable binary. `static_libs=True\|[...]` wraps libs in `-Bstatic/-Bdynamic`. |
 | `env.build_test(sources, libs=[])` | Build test binary (only if `test=1`) |
-| `env.build_bench(sources, libs=[])` | Build benchmark binary into `<build_path>/bench/bin/` (only if `bench=1`), same options and gtest/test conf as `build_test` |
+| `env.build_bench(sources, libs=[])` | Build Google Benchmark binary into `<build_path>/bench/bin/` (only if `bench=1`), same options as `build_test`, test conf plus `bench_*` app conf |
 | `env.build_demo(source, name=, libs=[], android_dir=None)` | Build demo (only if `demo=1`) |
 | `env.build_demos(sources)` | Build multiple demos (one per source file) |
 | `env.build_cpp_modules(sources, module_name=, imports=[])` | Build C++20 module interfaces and register them for later imports |
@@ -549,7 +549,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `combined=1` | off | Also produce a **single final library** `<app.name>` in `build/<...>/lib/` containing the objects of **all** built modules. Static (`.a`) when `static=1`, shared otherwise. Module-internal libs are absorbed; external libs (vcpkg/system) remain link-time dependencies for the consumer. Handy for distributing a one-file SDK. |
 | `test=1` / `t=1` | off | Build test binaries. |
 | `demo=1` | off | Build demo executables. |
-| `bench=1` | off | Build benchmark binaries (`env.build_bench`). Set by `make bench`. |
+| `bench=1` | off | Build benchmark binaries (`env.build_bench`); `make dep` installs `bench_extlibs`. Set by `make bench` and `make dep bench`. |
 | `compile_commands=1` | **on** | Generate `compile_commands.json` (clangd) in the build directory. `compile_commands=0` to disable. |
 | `nocache=1` | off | Disable ccache for this build. |
 | `compile_time=1` | off | Report per compile unit at the end of the build: clang wall time and top headers (inclusive, from `-ftime-trace`), line count after preprocessing. Needs `compile_commands=1`. Adds `-ftime-trace` (clang, ndk, emscripten, filc) or `-ftime-report` (gcc, mingw, zig; output inline, no per-unit time). Toggling it rebuilds every unit once. ccache hits report no time. |
@@ -716,8 +716,9 @@ Each run ends with a `TEST RESULTS` recap, printed after the failure details: on
 module (tests, failures, duration) followed by its `FAILED` and `SKIPPED` tests with their
 duration, then the totals and the lists of failed and skipped tests (colored on a terminal only).
 `v=1` / `verbose=1` also lists the passed tests (`OK`). It is read from the gtest
-XML reports, so it needs them (see `TEST_REPORT_FLAGS` below); a module without a report
-shows its exit code. With `repeat=N`, gtest reports the last iteration only.
+XML reports (Google Benchmark JSON under `make bench`), so it needs them (see
+`TEST_REPORT_FLAGS` below); a module without a report shows its exit code. With `repeat=N`,
+gtest reports the last iteration only.
 
 `test_timeout = seconds` in `app.py` sets the per binary limit of the non-interactive goals
 (default `300`, `0` disables it); `test_timeout=` on the command line overrides it.
@@ -762,14 +763,32 @@ from `<build_path>/bench/bin/` exactly like `make test` runs the tests: module a
 filters, `ls`, `repeat=`, `test_timeout=`, runners, recap. Logs, reports and `summary.json`
 land under `<build_path>/bench/`. `jtest=` is ignored (shards would skew the timings).
 
-Without `mode=` on the command line `make bench` uses `mode=release` (a `-O0` measure is
-meaningless), so its dependencies need `make dep test mode=release` once, and `build/last`
-then points to the release tree. Benchmarks are gtest binaries: each `TEST` measures and logs,
-asserting only sanity.
+Without `mode=` on the command line `make bench` and `make dep bench` use `mode=release` (a
+`-O0` measure is meaningless): run `make dep bench` once, and `build/last` then points to the
+release tree.
+
+Benchmarks are [Google Benchmark](https://github.com/google/benchmark) binaries: the app
+declares the library like its test framework, and `env.build_bench` links `bench_libs` on top
+of the test conf (`benchmark_main` provides `main`):
 
 ```python
+# app.py
+extlibs = {"benchmark": "1.9.5", ...}
+bench_extlibs = ['benchmark']
+bench_libs = ['benchmark_main', 'benchmark']
+
+# <module>/scons.py
 env.build_bench(Glob('bench/*.cpp'), libs=[env.module_format_name()])
 ```
+
+The run uses the `benchmark` profile whatever `TEST_PROFILE` and the `.env` flag overrides
+say: `t=` becomes `--benchmark_filter` (a regex), `repeat=N` `--benchmark_repetitions=N`,
+`ls` `--benchmark_list_tests`, `brief=` is ignored. Each module writes
+`<build_path>/bench/reports/<app>_<module>.json` (`--benchmark_out`), which the recap and
+`summary.json` read: one case per benchmark run, its time the whole run (iterations x real
+time), repetition aggregates left out. Google Benchmark exits `0` on `SkipWithError`: the
+profile's `TEST_LOG_FAILURE_PATTERN` (`ERROR OCCURRED:`) fails the module instead, and a
+`SkipWithMessage` run counts as skipped.
 
 #### Profiling the tests (perf)
 

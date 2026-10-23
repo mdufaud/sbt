@@ -133,7 +133,7 @@ For Linux cross-builds, SBT detects display dependencies from module link librar
 project-specific link names with `display_libs = {"custom-display-lib"}` in `app.py` so the
 X11/Wayland foundation packages are installed before dependent ports are configured.
 
-## Test & demo dependencies
+## Test, demo & bench dependencies
 
 ```python
 test_extlibs = ['gtest']
@@ -141,9 +141,13 @@ test_libs = ['gtest']
 
 demo_extlibs = ['cli11']
 demo_libs = ['CLI11']
+
+bench_extlibs = ['benchmark']
+bench_libs = ['benchmark_main', 'benchmark']
 ```
 
-Installed only when `test=1` or `demo=1` is passed to `make dep`.
+Installed only when `test=1`, `demo=1` or `bench=1` is passed to `make dep`; `make dep bench`
+sets `test=1 bench=1` and `mode=release` (unless `mode=` is given), the variant `make bench` builds.
 
 ## Installing dependencies
 
@@ -153,6 +157,7 @@ make dep m=base,app            # Only deps needed by base, app
 make dep test=1                # Include test deps (gtest)
 make dep demo=1                # Include demo deps (cli11)
 make dep test=1 demo=1         # Both
+make dep bench                 # Release test + bench deps (gtest, benchmark) for make bench
 make dep licenses              # Print SPDX data and write <build_path>/security/licenses.json
 make dep sbom                  # Write <build_path>/security/sbom.cdx.json (CycloneDX 1.5)
 ```

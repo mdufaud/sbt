@@ -131,6 +131,9 @@ if modules_to_build != "NONE":
     if builder.build_tests and hasattr(app, "test_extlibs"):
         extlibs.update(modules.get_extlibs_versions(app, app.test_extlibs))
 
+    if builder.build_benches and hasattr(app, "bench_extlibs"):
+        extlibs.update(modules.get_extlibs_versions(app, app.bench_extlibs))
+
     if builder.build_demo and hasattr(app, "demo_extlibs"):
         extlibs.update(modules.get_extlibs_versions(app, app.demo_extlibs))
 

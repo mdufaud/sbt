@@ -36,7 +36,7 @@ MAKEARG_TEST_GOAL := $(filter $(TEST_GOALS),$(MAKEARG_1))
 # Sub-commands owning a real rule - never stubbed here
 MAKEARG_KEYWORDS :=
 ifeq ($(MAKEARG_1), dep)
-MAKEARG_KEYWORDS := mod demo test list tree licenses sbom install search update
+MAKEARG_KEYWORDS := mod demo test bench list tree licenses sbom install search update
 else ifeq ($(MAKEARG_1), pkgdep)
 MAKEARG_KEYWORDS := mod demo test
 else ifeq ($(MAKEARG_1), dist)

@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/.env"
 if [ -n "${TEST_BENCH:-}" ]; then
     TEST_PATH="$BENCH_PATH"
     TEST_BIN_PATH="$BENCH_BIN_PATH"
+    TEST_PROFILE=benchmark
 fi
 SANITIZER_FAILURE_PATTERN='^(==[0-9]+==)?(ERROR|WARNING|SUMMARY): (AddressSanitizer|LeakSanitizer|ThreadSanitizer|UndefinedBehaviorSanitizer|MemorySanitizer|HWAddressSanitizer):|^.+:[0-9]+(:[0-9]+)?: runtime error:'
 # before the profile source: profiles reference $REPORT_DIR; unset-only default
@@ -90,6 +91,10 @@ module_failed()
         return 0
     fi
     if [ -f "${output_log}" ] && grep -qaE "$SANITIZER_FAILURE_PATTERN" "${output_log}" 2>/dev/null; then
+        return 0
+    fi
+    if [ -n "${TEST_LOG_FAILURE_PATTERN:-}" ] && [ -f "${output_log}" ] \
+        && grep -qaE "$TEST_LOG_FAILURE_PATTERN" "${output_log}" 2>/dev/null; then
         return 0
     fi
     return 1
@@ -239,7 +244,7 @@ run_sharded()
 execute_tests()
 (
     rm -rf "$REPORT_DIR/shards"
-    rm -f "$REPORT_DIR"/*.xml "$TEST_PATH/report.xml" "$TEST_PATH/summary.json"
+    rm -f "$REPORT_DIR"/*.xml "$REPORT_DIR"/*.json "$TEST_PATH/report.xml" "$TEST_PATH/summary.json"
     for module in $module_list;
     do
         module_path=${MODULES_PATH:-$PROJECT_ROOT_PATH}/$module
@@ -258,7 +263,7 @@ execute_tests()
 
         report_args=
         if [ ! -z "${TEST_REPORT_FLAGS:-}" ]; then
-            report_args="$TEST_REPORT_FLAGS"
+            report_args="${TEST_REPORT_FLAGS//"@MODULE@"/$module}"
         fi
 
         wrapper="$TEST_WRAPPER"

@@ -9,7 +9,8 @@ TEST_MODULE_REPORTS (0 drops per-module gtest xml once merged),
 VERBOSE (non-zero lists passed tests in the recap too),
 TEST_PERF (non-empty adds the slowest tests to the recap and summary.json),
 GITHUB_STEP_SUMMARY (markdown recap appended when set).
-Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml).
+Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml). A module with a
+reports/<app>_<module>.json (Google Benchmark, make bench) is read from it instead of its xml.
 """
 import glob
 import json
@@ -23,6 +24,7 @@ import xml.etree.ElementTree as ET
 SLOWEST_COUNT = 10
 # timeout(1): 124 after SIGTERM, 137 when -k had to SIGKILL
 TIMEOUT_EXIT_CODES = (124, 137)
+BENCH_TIME_UNITS = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -117,7 +119,34 @@ def merge_shard_reports(test_path, app_name, module):
         pass
 
 
+def parse_bench_report(path):
+    """Google Benchmark JSON: one case per iteration run, its time = iterations x real_time."""
+    try:
+        with open(path) as f:
+            runs = json.load(f).get("benchmarks", [])
+    except (OSError, ValueError):
+        return None
+    cases = []
+    for run in runs:
+        if run.get("run_type", "iteration") != "iteration":
+            continue
+        status = "passed"
+        if run.get("error_occurred"):
+            status = "failed"
+        elif run.get("skipped"):
+            status = "skipped"
+        unit = BENCH_TIME_UNITS.get(run.get("time_unit", "ns"), 1e-9)
+        cases.append({
+            "name": run.get("name", ""),
+            "time": run.get("iterations", 0) * run.get("real_time", 0) * unit,
+            "status": status,
+        })
+    return cases
+
+
 def parse_report(path):
+    if path.endswith(".json"):
+        return None, parse_bench_report(path)
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
@@ -279,7 +308,8 @@ def main():
         log = os.path.join(log_dir, "output.log")
         exit_code = read_exit_code(log_dir)
         merge_shard_reports(test_path, app_name, module)
-        report = os.path.join(test_path, "reports", "{}_{}.xml".format(app_name, module))
+        report = os.path.join(test_path, "reports", "{}_{}".format(app_name, module))
+        report += ".json" if os.path.isfile(report + ".json") else ".xml"
         root, cases = parse_report(report)
         failed = module in flagged or exit_code != 0
         outcome = module_outcome(exit_code, module in flagged, timeout)
@@ -310,7 +340,7 @@ def main():
             for suite in root.iter("testsuite"):
                 suite.set("name", "{}.{}".format(module, suite.get("name", "")))
                 suites.append(suite)
-            all_cases += cases
+        all_cases += cases or []
         failed_names = [case["name"] for case in cases or [] if case["status"] == "failed"]
         failed_tests += [{"module": module, "test": name} for name in failed_names]
         skipped_tests += [{"module": module, "test": case["name"]}
