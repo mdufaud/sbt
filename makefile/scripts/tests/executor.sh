@@ -251,7 +251,7 @@ execute_tests()
 (
     rm -rf "$REPORT_DIR/shards"
     rm -f "$REPORT_DIR"/*.xml "$REPORT_DIR"/*.json "$TEST_PATH/report.xml" "$TEST_PATH/summary.json" \
-        "$TEST_PATH/compare.json"
+        "$TEST_PATH/compare.json" "$TEST_PATH/report.json" "$TEST_PATH/report.html"
     for module in $module_list;
     do
         module_path=${MODULES_PATH:-$PROJECT_ROOT_PATH}/$module
@@ -330,6 +330,9 @@ execute_tests()
         bench_baselines "$rc"
         rc=$?
     fi
+    # after the compare: the bench page shows it
+    env -u PYTHONHOME "${PYTHON_BIN:-python3}" "$SCRIPT_DIR/report_html.py" "$TEST_PATH" \
+        || echo "warning: no html report written" >&2
     return $rc
 )
 

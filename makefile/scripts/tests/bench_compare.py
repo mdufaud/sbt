@@ -10,6 +10,7 @@ Exits 1 when BASELINE_DIR holds no report for the modules run.
 """
 import json
 import os
+import pathlib
 import statistics
 import sys
 
@@ -71,6 +72,12 @@ def compare(base, current, threshold):
     if noise is not None and abs(delta) <= 2 * noise:
         return "noise", delta, noise
     return ("regression" if delta > 0 else "improvement"), delta, noise
+
+
+def terminal_link(path):
+    """file:// url of *path*, an OSC 8 hyperlink on a terminal: ctrl+click opens it."""
+    url = pathlib.Path(path).as_uri()
+    return "\033]8;;{0}\033\\{0}\033]8;;\033\\".format(url) if sys.stdout.isatty() else url
 
 
 def human_ns(value):
@@ -151,6 +158,9 @@ def main():
     print(", ".join("{} {}".format(n, status) for status, n in counts.items() if n) or "no benchmark")
     for mismatch in mismatches:
         print("  context differs: " + mismatch)
+    print("results:")
+    print("  compare  " + os.path.abspath(os.path.join(bench_path, "compare.json")))
+    print("open: " + terminal_link(os.path.abspath(os.path.join(bench_path, "report.html"))))
     print("======================================================")
 
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")

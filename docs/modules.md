@@ -718,7 +718,12 @@ The same facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`,
 
 Each run ends with a `TEST RESULTS` recap, printed after the failure details: one line per
 module (tests, failures, duration) followed by its `FAILED` and `SKIPPED` tests with their
-duration, then the totals and the lists of failed and skipped tests (colored on a terminal only).
+duration, then the totals and the lists of failed and skipped tests (colored on a terminal only),
+and a `results:` block with the absolute paths to look at: `summary` (`summary.json`), `report`
+(the merged `report.xml`, when written), `reports/`, `logs/` (`<module>/output.log`) and, under
+`make perftest`, `perf/`. Its last line, `open: file:///.../report.html`, is the html report: a terminal
+hyperlink (ctrl+click) when the output is a terminal, a plain url otherwise; `BENCH COMPARE` ends the
+same way.
 `v=1` / `verbose=1` also lists the passed tests (`OK`). It is read from the gtest
 XML reports (Google Benchmark JSON under `make bench`), so it needs them (see
 `TEST_REPORT_FLAGS` below); a module without a report shows its exit code. With `repeat=N`,
@@ -753,8 +758,27 @@ Each run also writes, even when tests fail:
   "log", "tests", "failed_tests" } } }`. `outcome` is `passed`, `failed`, `crashed` or
   `timeout`; `tests` is `null` for a module without a report. Post-process it
   (upload, gate, badge) from an [addon](addon.md) `addon/makefile/addon.mk` target.
+- `<build_path>/test/report.json` — the whole run: `summary.json` plus `kind` (`test` or
+  `bench`), `date`, `build` (the `.env` platform facts: `platform`, `machine`, `libc`, `mode`,
+  `compiler`, `triplet`, `libs_type`, `cross`) and, per module, `cases`: `{ "name", "status",
+  "time", "message" }` (the gtest failure or skip message). Under `make bench` each module also
+  carries the raw Google Benchmark `benchmarks` runs and its `context`.
+- `<build_path>/test/report.html` — one self-contained page (no network, opens from disk) made
+  from `report.json`, for runs with many tests: a sticky toolbar filters every table by name or
+  module (`/` focuses it, `Escape` clears it) and by status (chips with their counts), shows how
+  many cases match, folds or unfolds everything; module blocks open on a match and count their
+  matching cases; every column header sorts its table. The page holds overview cards, a
+  results-by-module chart and a module table linking to each module, the failures (folded past
+  10) with their message, every module's cases, links to the logs. `make bench` writes the same
+  page under `<build_path>/bench/` with a median-time chart per module (log scale, one dot per
+  repetition; folded past 30 benchmarks), a repetitions sparkline per benchmark (each
+  repetition in run order against the median: drift, warmup or an outlier stand out), the
+  baseline comparison (chart of the changed benchmarks past 30, status chips, sortable table)
+  and the machine facts. Both pages use one stylesheet (`makefile/scripts/tests/report.css`,
+  inlined), dark by default with a light theme button.
 
-Each test run starts by deleting the previous `reports/*.xml`, `report.xml` and `summary.json`
+Each test run starts by deleting the previous `reports/*.xml`, `report.xml`, `report.json`,
+`report.html` and `summary.json`
 (whatever the modules it runs); `reports/perf/` is only emptied by `make perftest`.
 
 When `GITHUB_STEP_SUMMARY` is set (GitHub Actions), a markdown table of modules and the
@@ -792,12 +816,14 @@ env.build_bench(Glob('bench/*.cpp'), libs=[env.module_format_name()])
 
 The run uses the `benchmark` profile whatever `TEST_PROFILE` and the `.env` flag overrides
 say: `t=` becomes `--benchmark_filter` (a regex), `repeat=N` `--benchmark_repetitions=N`
-(mean, median, stddev and cv rows), `ls` `--benchmark_list_tests`. `--benchmark_context` stores
+(one process: every repetition is kept in the report, plus mean, median, stddev and cv rows),
+`ls` `--benchmark_list_tests`. `--benchmark_context` stores
 the build facts in every report: `sbt_mode`, `sbt_compiler`, `sbt_triplet`, `sbt_libs_type` and
 `git_rev` (`git describe --always --dirty` of the project, when it is a git checkout).
 
 Each module writes `<build_path>/bench/reports/<app>_<module>.json` (`--benchmark_out`), which
-the recap and `summary.json` read: one case per benchmark, its repetitions merged (time summed,
+the recap, `summary.json`, `report.json`, `report.html` and the merged `report.xml` (one
+`<module>.benchmarks` JUnit suite per module) read: one case per benchmark, its repetitions merged (time summed,
 iterations x real time; aggregates such as `_mean` left out). Google Benchmark exits `0` on
 `SkipWithError`: the profile's `TEST_LOG_FAILURE_PATTERN` (`ERROR OCCURRED:`) fails the module
 instead, and a `SkipWithMessage` run counts as skipped. The recap ends with `warnings:` (also
@@ -821,7 +847,8 @@ baseline's: past `bench_threshold=` percent (default `5`) it is a `regression` o
 (`noise`, needs `repeat=` >= 2); `new`, `removed` and `unmeasured` (errored or skipped on one
 side) complete the statuses. The `BENCH COMPARE` block lists the changed benchmarks (all with
 `v=1`), the counts, and the context keys that differ from the baseline (mode, compiler,
-triplet, libs type, CPU count, library version). It writes `<build_path>/bench/compare.json`
+triplet, libs type, CPU count, library version), and ends with the path of
+`<build_path>/bench/compare.json`, which it writes
 (`baseline`, `threshold_percent`, `counts`, `context_mismatch`, `benchmarks`: `module`,
 `benchmark`, `status`, `baseline_ns`, `current_ns`, `delta`, `cpu_delta`, `noise`) and appends
 a table to `GITHUB_STEP_SUMMARY`. A regression does not fail the run: gate on `compare.json`;

@@ -9,12 +9,16 @@ TEST_MODULE_REPORTS (0 drops per-module gtest xml once merged),
 VERBOSE (non-zero lists passed tests in the recap too),
 TEST_PERF (non-empty adds the slowest tests to the recap and summary.json),
 GITHUB_STEP_SUMMARY (markdown recap appended when set).
-Writes TEST_PATH/summary.json and TEST_PATH/report.xml (merged gtest xml). A module with a
+Writes TEST_PATH/summary.json, TEST_PATH/report.xml (merged JUnit xml: gtest suites, or one
+"benchmarks" suite per module) and TEST_PATH/report.json (summary.json plus every case, its
+failure message, and for benchmarks the raw runs and context). A module with a
 reports/<app>_<module>.json (Google Benchmark, make bench) is read from it instead of its xml.
 """
+import datetime
 import glob
 import json
 import os
+import pathlib
 import re
 import shutil
 import signal
@@ -25,6 +29,9 @@ SLOWEST_COUNT = 10
 # timeout(1): 124 after SIGTERM, 137 when -k had to SIGKILL
 TIMEOUT_EXIT_CODES = (124, 137)
 BENCH_TIME_UNITS = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
+# .env platform facts copied into report.json as "build"
+BUILD_FACTS = ("SBT_PLATFORM", "SBT_MACHINE", "SBT_LIBC", "SBT_MODE", "SBT_COMPILER", "SBT_TRIPLET",
+               "SBT_LIBS_TYPE", "SBT_CROSS")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 # make bench prints the same recap over benchmarks
 BENCH = bool(os.environ.get("TEST_BENCH"))
@@ -123,16 +130,19 @@ def merge_shard_reports(test_path, app_name, module):
         pass
 
 
-def parse_bench_report(path):
-    """Google Benchmark JSON: one case per benchmark, its repetitions merged (time summed,
-    failed when one errored, skipped when all were); aggregates (mean, median...) left out."""
+def load_json(path):
     try:
         with open(path) as f:
-            runs = json.load(f).get("benchmarks", [])
+            return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def bench_cases(report):
+    """Google Benchmark JSON: one case per benchmark, its repetitions merged (time summed,
+    failed when one errored, skipped when all were); aggregates (mean, median...) left out."""
     cases = {}
-    for run in runs:
+    for run in report.get("benchmarks", []):
         if run.get("run_type", "iteration") != "iteration":
             continue
         status = "passed"
@@ -148,15 +158,28 @@ def parse_bench_report(path):
             if rank in (case["status"], status):
                 case["status"] = rank
                 break
+        message = run.get("error_message") or run.get("skip_message")
+        if message and "message" not in case:
+            case["message"] = message
     return list(cases.values())
 
 
-def bench_context(path):
-    try:
-        with open(path) as f:
-            return json.load(f).get("context", {})
-    except (OSError, ValueError):
-        return {}
+def bench_root(cases):
+    """JUnit view of the benchmarks, merged into report.xml like the gtest suites."""
+    totals = count(cases)
+    suite = ET.Element("testsuite", {
+        "name": "benchmarks", "tests": str(totals["total"]), "failures": str(totals["failed"]),
+        "skipped": str(totals["skipped"]), "errors": "0", "time": "{:.3f}".format(totals["time"]),
+    })
+    for case in cases:
+        element = ET.SubElement(suite, "testcase", {
+            "classname": "benchmarks", "name": case["name"], "time": "{:.6f}".format(case["time"])})
+        if case["status"] != "passed":
+            ET.SubElement(element, "failure" if case["status"] == "failed" else "skipped",
+                          {"message": case.get("message", "")})
+    root = ET.Element("testsuites")
+    root.append(suite)
+    return root
 
 
 def bench_warnings(contexts):
@@ -179,19 +202,23 @@ def bench_warnings(contexts):
 
 
 def parse_report(path):
-    if path.endswith(".json"):
-        return None, parse_bench_report(path)
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         return None, None
     cases = []
     for case in root.iter("testcase"):
-        cases.append({
+        entry = {
             "name": "{}.{}".format(case.get("classname", ""), case.get("name", "")),
             "time": float(case.get("time") or 0),
             "status": case_status(case),
-        })
+        }
+        detail = next((d for d in (case.find(tag) for tag in ("failure", "error", "skipped")) if d is not None), None)
+        if detail is not None and entry["status"] != "passed":
+            message = detail.get("message") or (detail.text or "")
+            if message:
+                entry["message"] = message
+        cases.append(entry)
     return root, cases
 
 
@@ -242,7 +269,14 @@ class Colors:
         self.reset = "\033[0m" if enabled else ""
 
 
-def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, crashed, timed_out, warnings):
+def terminal_link(path):
+    """file:// url of *path*, an OSC 8 hyperlink on a terminal: ctrl+click opens it."""
+    url = pathlib.Path(path).as_uri()
+    return "\033]8;;{0}\033\\{0}\033]8;;\033\\".format(url) if sys.stdout.isatty() else url
+
+
+def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, crashed, timed_out, warnings, paths,
+                html):
     c = Colors(sys.stdout.isatty())
     label = {
         "passed": c.green + "OK     " + c.reset,
@@ -293,6 +327,10 @@ def print_recap(modules, totals, failed_tests, skipped_tests, verbose, slowest, 
         print("warnings:")
         for warning in warnings:
             print("  {}{}{}".format(c.yellow, warning, c.reset))
+    print("results:")
+    for name, path in paths:
+        print("  {:<8} {}".format(name, path))
+    print("open: " + terminal_link(html))
     print("======================================================")
 
 
@@ -345,16 +383,24 @@ def main():
     skipped_tests = []
     parsed_reports = []
     contexts = []
+    bench_details = {}
     for module in module_list:
         log_dir = os.path.join(test_path, "logs", module)
         log = os.path.join(log_dir, "output.log")
         exit_code = read_exit_code(log_dir)
         merge_shard_reports(test_path, app_name, module)
         report = os.path.join(test_path, "reports", "{}_{}".format(app_name, module))
-        report += ".json" if os.path.isfile(report + ".json") else ".xml"
-        root, cases = parse_report(report)
-        if report.endswith(".json") and cases is not None:
-            contexts.append(bench_context(report))
+        if os.path.isfile(report + ".json"):
+            report += ".json"
+            bench = load_json(report)
+            cases = bench_cases(bench) if bench is not None else None
+            root = bench_root(cases) if cases is not None else None
+            if bench is not None:
+                contexts.append(bench.get("context", {}))
+                bench_details[module] = {"context": bench.get("context", {}), "benchmarks": bench.get("benchmarks", [])}
+        else:
+            report += ".xml"
+            root, cases = parse_report(report)
         failed = module in flagged or exit_code != 0
         outcome = module_outcome(exit_code, module in flagged, timeout)
         unfinished = unfinished_tests(log) if outcome in ("crashed", "timeout") else []
@@ -380,7 +426,9 @@ def main():
                                 "tests": unfinished})
             suites.append(interruption_suite(module, info, timeout))
         if root is not None:
-            parsed_reports.append(report)
+            # a bench report outlives the summary: save= and compare= read it
+            if report.endswith(".xml"):
+                parsed_reports.append(report)
             for suite in root.iter("testsuite"):
                 suite.set("name", "{}.{}".format(module, suite.get("name", "")))
                 suites.append(suite)
@@ -437,9 +485,31 @@ def main():
         json.dump(summary, f, indent=4)
         f.write("\n")
 
+    full = summary | {
+        "kind": "bench" if BENCH else "test",
+        "date": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "build": {key[4:].lower(): value for key, value in sorted(os.environ.items())
+                  if key in BUILD_FACTS and value},
+        "modules": {m: info | bench_details.get(m, {}) for m, info in modules.items()},
+    }
+    with open(os.path.join(test_path, "report.json"), "w") as f:
+        json.dump(full, f, indent=4)
+        f.write("\n")
+
+    base = os.path.abspath(test_path)
+    paths = [("summary", os.path.join(base, "summary.json"))]
+    if suites:
+        paths.append(("report", os.path.join(base, "report.xml")))
+    paths += [
+        ("json", os.path.join(base, "report.json")),
+        ("reports", os.path.join(base, "reports") + os.sep),
+        ("logs", os.path.join(base, "logs") + os.sep),
+    ]
+    if os.environ.get("TEST_PERF"):
+        paths.append(("perf", os.path.join(base, "reports", "perf") + os.sep))
     if modules:
         print_recap(modules, totals, failed_tests, skipped_tests, os.environ.get("VERBOSE", "0").casefold() not in ("", "0", "false"), slowest,
-                    crashed, timed_out, warnings)
+                    crashed, timed_out, warnings, paths, os.path.join(base, "report.html"))
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary and modules:
         write_step_summary(step_summary, app_name, modules, totals, failed_tests, skipped_tests, warnings)
