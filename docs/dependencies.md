@@ -244,6 +244,8 @@ build/<path>/
 ├── vcpkg/
 │   ├── vcpkg.json                    # Generated manifest
 │   ├── overlay-triplets/             # Generated triplet wrappers
+│   ├── buildtrees/<port>/            # Build logs; a failed port keeps its full build dir
+│   ├── packages/                     # Per-port staging before install
 │   └── vcpkg_installed/<triplet>/
 │       ├── include/                  # Headers
 │       └── lib/                      # Libraries
@@ -255,6 +257,8 @@ SCons adds `extlib/include` to `CPPPATH` and `extlib/lib` to `LIBPATH` for every
 ### Binary cache
 
 vcpkg caches compiled packages in `.vcpkg/archives/`. After the first `make dep`, subsequent calls restore from cache (~1 second).
+
+The cache is shared by every build variant and every project using the same `VCPKG_ROOT`: it is what avoids rebuilds. `build/<path>/vcpkg/buildtrees/` and `packages/` are never reused to skip a build and can be deleted any time.
 
 ## Linking: native vs cross
 

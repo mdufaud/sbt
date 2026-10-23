@@ -118,16 +118,6 @@ sbt_dep: vcpkg_deploy
 # Dependencies
 ##################
 
-# vcpkg lock, one per VCPKG_PATH: checkouts sharing a VCPKG_ROOT share its
-# packages/ and buildtrees/, so two fetches building the same port corrupt each
-# other. The second one waits, then restores the first one's archives.
-SBT_VCPKG_LOCK_PATH := $(VCPKG_PATH)/.sbt-vcpkg.lock
-ifneq ($(SBT_LOCK_TIMEOUT),0)
-ifeq ($(filter $(SBT_VCPKG_LOCK_PATH),$(SBT_LOCK_HELD)),)
-SBT_VCPKG_LOCK = $(if $(filter fetch,$(VCPKG_ACTION)),$(PYTHON_BIN) $(SBT_PATH)/scripts/build_lock.py acquire $(SBT_VCPKG_LOCK_PATH) $(SBT_LOCK_TIMEOUT) $$$$ && SBT_LOCK_HELD="$(SBT_LOCK_HELD) $(SBT_VCPKG_LOCK_PATH)")
-endif
-endif
-
 .PHONY: dep # Run vcpkg to get dependencies
 
 dep: sbt_dep
@@ -150,7 +140,7 @@ dep: sbt_dep
 			cpu=$(cpu) \
 			with-system-packages=$(with-system-packages) \
 	)
-	$(QUIET) $(SBT_VCPKG_LOCK) $(VCPKG_SCRIPT) $(BUILD_CMD_LINE)
+	$(QUIET) SBT_LOCK_TIMEOUT=$(SBT_LOCK_TIMEOUT) $(VCPKG_SCRIPT) $(BUILD_CMD_LINE)
 
 ifeq ($(MAKEARG_1), dep)
 

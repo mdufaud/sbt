@@ -36,6 +36,7 @@ from sbt.vcpkg.manifest import (
     _get_baseline,
 )
 from sbt.vcpkg.patches import generate_overlay_ports
+from sbt.scripts import build_lock
 
 app = loader.load_app()
 
@@ -49,6 +50,7 @@ if vcpkg_bin_path is None:
 
 vcpkg_build_path = os.path.join(builder.build_path, "vcpkg")
 vcpkg_build_manifest_path = os.path.join(vcpkg_build_path, "vcpkg.json")
+lock_timeout = float(os.environ.get("SBT_LOCK_TIMEOUT") or 7200)
 
 sbt_triplet_path = f"{builder.sbt_path}/vcpkg/triplets"
 
@@ -227,14 +229,17 @@ def _check_vcpkg_baseline():
     pinned = f"{baseline}^{{commit}}"
     if _git_vcpkg("cat-file", "-e", pinned).returncode == 0:
         return
-    logger.warning(f"vcpkg clone is missing the manifest baseline: {baseline}")
-    shallow = _git_vcpkg("rev-parse", "--is-shallow-repository")
-    repair = ["fetch", "--unshallow"] if shallow.stdout.strip() == "true" else ["fetch", "origin", baseline]
-    fetch = _git_vcpkg(*repair)
-    if _git_vcpkg("cat-file", "-e", pinned).returncode != 0:
-        logger.error(f"cannot resolve vcpkg baseline {baseline}: {fetch.stderr.strip()}")
-        logger.error(f"repair the clone with: git -C {vcpkg_dir_path} fetch --unshallow")
-        raise RuntimeError("vcpkg baseline unreachable")
+    with build_lock.held(os.path.join(vcpkg_dir_path, ".sbt-vcpkg.lock"), lock_timeout):
+        if _git_vcpkg("cat-file", "-e", pinned).returncode == 0:
+            return
+        logger.warning(f"vcpkg clone is missing the manifest baseline: {baseline}")
+        shallow = _git_vcpkg("rev-parse", "--is-shallow-repository")
+        repair = ["fetch", "--unshallow"] if shallow.stdout.strip() == "true" else ["fetch", "origin", baseline]
+        fetch = _git_vcpkg(*repair)
+        if _git_vcpkg("cat-file", "-e", pinned).returncode != 0:
+            logger.error(f"cannot resolve vcpkg baseline {baseline}: {fetch.stderr.strip()}")
+            logger.error(f"repair the clone with: git -C {vcpkg_dir_path} fetch --unshallow")
+            raise RuntimeError("vcpkg baseline unreachable")
 
 
 def _append_generated_overlay_ports(args):
@@ -308,6 +313,10 @@ def _execute_vcpkg_install():
         "install",
         f"--triplet={vcpkg_triplet}",
         "--allow-unsupported",
+        # per-variant roots: vcpkg wipes buildtrees/<port>/src for every triplet, archives/ stays shared
+        f"--x-buildtrees-root={os.path.join(vcpkg_build_path, 'buildtrees')}",
+        f"--x-packages-root={os.path.join(vcpkg_build_path, 'packages')}",
+        "--clean-buildtrees-after-build",
     ]
 
     # Inject extra compiler flags via an overlay triplet (if defined in app.py)
@@ -349,7 +358,9 @@ def _execute_vcpkg_install():
         logger.info("no external libraries left to fetch with vcpkg")
         return 0
     number_of_seconds_per_lib = 1000
-    proc = subprocess_run(args, cwd=vcpkg_build_path, timeout=(number_of_seconds_per_lib * len(extlibs)), env=copy_env)
+    # same triplet = same ports: the second fetch waits, then restores the first one's archives
+    with build_lock.held(os.path.join(vcpkg_dir_path, f".sbt-vcpkg-{vcpkg_triplet}.lock"), lock_timeout):
+        proc = subprocess_run(args, cwd=vcpkg_build_path, timeout=(number_of_seconds_per_lib * len(extlibs)), env=copy_env)
 
     logger.info("fetched in {:.3f} seconds".format(time() - start_time))
 

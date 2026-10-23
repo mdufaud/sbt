@@ -10,6 +10,7 @@ usage: build_lock.py acquire LOCK_PATH TIMEOUT_SECONDS OWNER_PID
 exit 0: lock held until OWNER_PID exits; exit 1: timed out
 """
 
+import contextlib
 import os
 import sys
 import time
@@ -67,10 +68,8 @@ def _hold_until_owner_exits(owner_pid):
     os._exit(0)
 
 
-def acquire(lock_path, timeout, owner_pid):
-    if fcntl is None:
-        sys.stderr.write("sbt: no flock on this host, build lock skipped\n")
-        return 0
+def _wait_lock(lock_path, timeout):
+    """Return the fd holding the flock on lock_path, or None once timeout expires."""
     os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     start = time.monotonic()
@@ -78,25 +77,57 @@ def acquire(lock_path, timeout, owner_pid):
     while True:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            break
+            return fd
         except BlockingIOError:
             pass
         elapsed = time.monotonic() - start
         if elapsed >= timeout:
             sys.stderr.write("sbt: timed out after {:.0f}s waiting for build lock {} held by: {}\n".format(
                 elapsed, lock_path, _holder_info(fd)))
-            return 1
+            os.close(fd)
+            return None
         if elapsed >= next_report:
             sys.stderr.write("sbt: waiting for build lock {} held by: {} (timeout {:.0f}s)\n".format(
                 lock_path, _holder_info(fd), timeout))
             sys.stderr.flush()
             next_report = elapsed + REPORT_SECONDS
         time.sleep(POLL_SECONDS)
-    info = "{} (pid {}, since {})".format(_process_cmdline(owner_pid), owner_pid, time.strftime("%F %T"))
+
+
+def _write_holder(fd, pid):
+    info = "{} (pid {}, since {})".format(_process_cmdline(pid), pid, time.strftime("%F %T"))
     os.ftruncate(fd, 0)
     os.pwrite(fd, info.encode(), 0)
+
+
+def acquire(lock_path, timeout, owner_pid):
+    if fcntl is None:
+        sys.stderr.write("sbt: no flock on this host, build lock skipped\n")
+        return 0
+    fd = _wait_lock(lock_path, timeout)
+    if fd is None:
+        return 1
+    _write_holder(fd, owner_pid)
     _hold_until_owner_exits(owner_pid)
     return 0
+
+
+@contextlib.contextmanager
+def held(lock_path, timeout):
+    """Hold the lock for the with-block in this process; timeout 0 disables it."""
+    if fcntl is None or timeout == 0:
+        if fcntl is None:
+            sys.stderr.write("sbt: no flock on this host, build lock skipped\n")
+        yield
+        return
+    fd = _wait_lock(lock_path, timeout)
+    if fd is None:
+        raise TimeoutError("build lock {} not acquired within {:.0f}s".format(lock_path, timeout))
+    _write_holder(fd, os.getpid())
+    try:
+        yield
+    finally:
+        os.close(fd)
 
 
 def main(argv):
