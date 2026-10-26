@@ -141,9 +141,10 @@ def consume(env, dep, ctx):
         raise RuntimeError("module '{}' depends on several header modules ('{}' and '{}'), only one is supported".format(
             env["APP_MODULE_NAME"], current["module"], dep))
     env["PCH"] = header
-    verify(env)
     env.Append(CXXFLAGS=list(header["flag"]))
-    _patch_ccache(env["ENV"])
+    verify(env)
+    if env.get("PCH") is not None:
+        _patch_ccache(env["ENV"])
 
 
 def use_test_header(env, ctx):
@@ -163,7 +164,8 @@ def use_test_header(env, ctx):
 def verify(env):
     """Fail when *env* no longer compiles with the flags its header was built
     with. Re-run on test and demo envs, which gain app-level flags after the
-    module env is created."""
+    module env is created. With app.py `pch_strict = False`, the env drops the
+    header and warns instead."""
     header = env.get("PCH")
     if header is None:
         return
@@ -172,10 +174,18 @@ def verify(env):
         return
     only_module = sorted(set(tokens) - set(header["tokens"]))
     only_header = sorted(set(header["tokens"]) - set(tokens))
-    raise RuntimeError(
-        "module '{}' cannot use header module '{}': its C++ compile flags differ "
-        "(only in module: {}; only in header module: {}). Align the flags or drop '{}' from the module's depends".format(
-            env["APP_MODULE_NAME"], header["module"], only_module, only_header, header["module"]))
+    detail = "module '{}' cannot use header module '{}': its C++ compile flags differ (only in module: {}; only in header module: {})".format(
+        env["APP_MODULE_NAME"], header["module"], only_module, only_header)
+    if getattr(env.app(), "pch_strict", True):
+        raise RuntimeError("{}. Align the flags or drop '{}' from the module's depends".format(detail, header["module"]))
+    logger.warning("\n".join([
+        "=" * 79,
+        "PCH SKIPPED: {}".format(detail),
+        "  module builds without the precompiled header (pch_strict = False in app.py)",
+        "  align the flags or drop '{}' from the module's depends".format(header["module"]),
+        "=" * 79,
+    ]))
+    strip(env, log=False)
 
 
 def strip(env, log=True):

@@ -90,6 +90,12 @@ Defines, `-std`, `-f*` / `-m*` flags and the compiler itself must match. To
 keep a module out, drop the header module from its `depends`, set `pch: False`
 (or a selector form such as `android-pch: False`), or align its flags.
 
+With `pch_strict = False` in `app.py`, a diverging module does not fail: it
+builds without the header and a warning block names the module and the
+diverging tokens. Every such module warns on its own, so the list stays visible
+until the flags are aligned or the header module is dropped from its `depends`.
+`pch_strict` defaults to `True`.
+
 ## Artifacts and rebuilds
 
 Artifacts live under `build/<config>/pch/<module>/<compiler hash>/` (anchor copy

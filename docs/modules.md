@@ -171,6 +171,8 @@ architectures = {
 }
 ```
 
+`pch_strict` (default `True`) makes a module whose compile flags diverge from its precompiled header fail configure. `False` builds that module without the header and warns instead. See [pch.md](pch.md).
+
 After a non-dry build, SBT calls optional `on_build_success(build_modules, builder)` or `on_build_fail(build_modules, builder)` hooks from `app.py`.
 
 ### Android keys
