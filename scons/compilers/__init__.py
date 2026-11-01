@@ -7,6 +7,9 @@ def apply_common_sanitizers(env):
     """Append sanitizer/coverage flags shared by GCC and Clang (asan excepted)."""
     if builder.build_ubsan:
         _append_both(env, ["-fsanitize=undefined", "-fno-omit-frame-pointer"])
+        if builder.build_fuzz:
+            # a recovered report is no crash for libFuzzer: it would keep fuzzing past the bug
+            _append_both(env, ["-fno-sanitize-recover=undefined"])
     if builder.build_tsan:
         _append_both(env, ["-fsanitize=thread", "-fno-omit-frame-pointer"])
     if builder.build_lsan:

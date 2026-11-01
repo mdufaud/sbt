@@ -94,6 +94,7 @@ _LOCAL_OPTIONS = {
     "test_timeout": _seconds,
     "bench_threshold": _count,
     "fuzz_time": _count,
+    "fuzz_args": None,
     "PORT": _port,
     "SBT_LOCK_TIMEOUT": _seconds,
 }

@@ -244,7 +244,7 @@ def __get_build_platform():
         build_platform = "windows"
     return build_platform
 
-def get_compiler():
+def get_requested_compiler():
     build_platform = __get_build_platform()
     compiler = utils.get_opt("compiler", os.getenv("COMPILER", "gcc"))
     if is_termux():
@@ -256,6 +256,13 @@ def get_compiler():
     elif build_platform == "android":
         compiler = "ndk"
     return compiler.lower()
+
+def get_compiler():
+    compiler = get_requested_compiler()
+    # libFuzzer is clang only: resolved here so build_path names the compiler actually used
+    if has_fuzz() and __get_build_platform() == "linux" and compiler in ("gcc", "zig", "filc"):
+        return "clang"
+    return compiler
 
 def get_platform():
     compiler = get_compiler()
@@ -742,7 +749,6 @@ def _enabled_sanitizers():
         "msan": build_msan,
         "hwasan": build_hwasan,
         "coverage": build_coverage,
-        "fuzz": build_fuzz,
     }
 
 def _check_unsupported_sanitizers(compiler_label):
@@ -791,8 +797,15 @@ def verify_args(app):
         logger.error("memory sanitizer (msan) is only supported with clang")
         ret = False
 
-    if build_fuzz and (build_compiler != "clang" or build_platform != "linux" or is_cross_building()):
-        logger.error("fuzzing (fuzz) requires a native linux build with clang")
+    # get_compiler() already switched to clang so that build_path names it; only tell the user
+    if build_fuzz and build_compiler != get_requested_compiler():
+        logger.warning("fuzzing (fuzz) is libFuzzer, a clang runtime - switching compiler {} to clang".format(get_requested_compiler()))
+
+    if build_fuzz and build_platform != "linux":
+        logger.error("fuzzing (fuzz) does not work on platform {}: it is clang's libFuzzer, native linux only".format(build_platform))
+        ret = False
+    elif build_fuzz and is_cross_building():
+        logger.error("fuzzing (fuzz) does not work cross built: it is clang's libFuzzer, native linux only")
         ret = False
 
     if build_hwasan and build_machine != "arm64":

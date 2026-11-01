@@ -553,7 +553,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `test=1` / `t=1` | off | Build test binaries. |
 | `demo=1` | off | Build demo executables. |
 | `bench=1` | off | Build benchmark binaries (`env.build_bench`); `make dep` installs `bench_extlibs`. Set by `make bench` and `make dep bench`. |
-| `fuzz=1` | off | Build libFuzzer binaries (`env.build_fuzz`) and instrument every unit with `-fsanitize=fuzzer-no-link`. Clang on a native linux build only. Set by `make fuzztest`. |
+| `fuzz=1` | off | Build libFuzzer binaries (`env.build_fuzz`) and instrument every unit with `-fsanitize=fuzzer-no-link`. Native linux build only, `gcc` is switched to `clang`. Set by `make fuzztest`. |
 | `compile_commands=1` | **on** | Generate `compile_commands.json` (clangd) in the build directory. `compile_commands=0` to disable. |
 | `nocache=1` | off | Disable ccache for this build. |
 | `compile_time=1` | off | Report per compile unit at the end of the build: clang wall time and top headers (inclusive, from `-ftime-trace`), line count after preprocessing. Needs `compile_commands=1`. Adds `-ftime-trace` (clang, ndk, emscripten, filc) or `-ftime-report` (gcc, mingw, zig; output inline, no per-unit time). Toggling it rebuilds every unit once. ccache hits report no time. |
@@ -572,6 +572,7 @@ Values are checked before anything runs (`make` stops with `invalid option value
 | `compare=name` | | `make bench`: compare the run with baseline `name` (`BENCH COMPARE` block, `<build_path>/bench/compare.json`). |
 | `bench_threshold=percent` | `5` | `make bench compare=`: change past which a benchmark regresses or improves. |
 | `fuzz_time=seconds` | `15` | `make fuzztest`: run time of each fuzzer (`-max_total_time`). |
+| `fuzz_args=flags` | | `make fuzztest`: extra libFuzzer flags, e.g. `"-max_len=64 -fork=4"`. |
 | `brief=1` | off | Keep passing test output in logs and show failures in the console. |
 | `env=path` | `env.py` | Load the named environment module instead of the default project `env.py`. |
 | `dist=type` | | Select a distribution type (`tar`, `apt`, `pacman`, or `docker`). |
@@ -683,7 +684,7 @@ make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
 make bench m=app                    # Build (mode=release) + run benchmark binaries only
 make bench compare=main             # ... and compare with a saved baseline (save=main)
-make fuzztest compiler=clang m=app t=Slice  # Build + run the libFuzzer binaries (fuzz_time=seconds each)
+make fuzztest m=app t=Slice          # Build (clang) + run the libFuzzer binaries (fuzz_time=seconds each)
 make perftest m=app                   # perf record each test binary + the slowest tests
 make iperftest                       # Same, non-interactive
 make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
@@ -892,11 +893,12 @@ built.
 #### Fuzzing (libFuzzer)
 
 `make fuzztest` (`fuzz_test`) builds the libFuzzer binaries (`fuzz=1`, `asan=1`, `ubsan=1`; tests too only with
-`test=1` on the command line) and runs each for `fuzz_time=` seconds (default `15`). It needs clang on a
-native linux build, so pass `compiler=clang`: any other combination stops at startup with
-`fuzzing (fuzz) requires a native linux build with clang`. `fuzz` cannot be combined with another primary
-sanitizer. The goal has no non-interactive variant and no timeout other than `fuzz_time`; `DEBUGGER` and
-`DEBUGGER_ARGS` wrap each fuzzer (a memory cap, valgrind, ...).
+`test=1` on the command line) and runs each for `fuzz_time=` seconds (default `15`). Fuzzing is clang's
+libFuzzer, so on a native linux build `fuzz=1` replaces `gcc`, `zig` and `filc` by `clang` (the build path is
+the clang one) and warns `switching compiler gcc to clang`. `platform=windows|android|web` or a cross
+`machine=` stops at startup with `fuzzing (fuzz) does not work on platform windows: it is clang's libFuzzer,
+native linux only`. `fuzz` cannot be combined with another primary sanitizer. The goal has no non-interactive
+variant; `DEBUGGER` and `DEBUGGER_ARGS` wrap each fuzzer (a memory cap, valgrind, ...).
 
 A module declares its fuzzers in its `scons.py`, one per source file (one class per file, like the tests and
 the benchmarks); `env.build_fuzz` builds nothing without `fuzz=1`:
@@ -919,6 +921,18 @@ either every binary of that directory runs, `fuzz_time` seconds each. Per binary
 
 - `corpus/` — replayed and grown by every run, so coverage accumulates between runs.
 - `artifacts/` — the `crash-*`, `oom-*` and `timeout-*` inputs; replay one with `<binary> <artifact>`.
+
+A source `fuzz/Foo.cpp` can come with `fuzz/Foo.dict` (a libFuzzer dictionary: the tokens of the format) and
+`fuzz/Foo.seeds/` (valid inputs, read-only): `env.build_fuzz` copies them next to the binary as
+`<name>.dict` and `<name>.seeds/`, and the run passes them as `-dict=` and as a second corpus directory. A seed
+is a raw input: `FuzzedDataProvider` reads integers from the end of the input and bytes or strings from the
+front, so a seed is the payload followed by the bytes the harness reads as integers.
+
+Every run uses `-timeout=10` (a unit slower than 10 s is a hang), `-use_value_profile=1` (comparisons against
+multi-byte constants guide the mutations) and `-print_final_stats=1`; `ubsan` findings abort (`-fno-sanitize-recover`)
+so they are crashes too. `fuzz_args="-max_len=64 -fork=4"` appends any libFuzzer flags, parsed after these
+defaults so they win. Once done, a line sums up the coverage (`cov`), features (`ft`) and speed (`exec/s`) of
+each fuzzer: a harness stuck at a tiny `cov` does not reach the code it targets.
 
 The console log of each run is kept in `<build_path>/fuzz/logs/`. The goal fails when a fuzzer exits non-zero.
 `make clean` deletes `<build_path>/fuzz/`, corpus included.

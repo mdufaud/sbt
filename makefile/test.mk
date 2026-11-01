@@ -20,7 +20,7 @@
 #   ivtest iltest             non-interactive valgrind / valgrind leak check
 #   bench                    build (mode=release unless given) and run bench binaries from <build>/bench
 #   perftest perf_test iperftest nointeract_perf_test   perf record each test binary (native only), lists the slowest tests
-#   fuzztest fuzz_test       build libFuzzer binaries (clang, native linux; asan+ubsan) and run each for fuzz_time seconds ([modules] [filter])
+#   fuzztest fuzz_test       build libFuzzer binaries (switches to clang, native linux only; asan+ubsan) and run each for fuzz_time seconds ([modules] [filter])
 .PHONY: $(TEST_GOALS)
 
 # enter the test branch only for goals in the exact TEST_GOALS list (args.mk)
@@ -146,6 +146,7 @@ fuzz_test: build
 	$(QUIET) env DEBUGGER="$(DEBUGGER)" \
 					DEBUGGER_ARGS="$(DEBUGGER_ARGS)" \
 					FUZZ_TIME="$(fuzz_time)" \
+					FUZZ_ARGS="$(fuzz_args)" \
 					bash $(MAKEFILE_TOOLS)/scripts/tests/fuzz.sh "$(TEST_PATH)/.env" "$(MODULES_NAME_SPLIT)" "$(TEST_NAME_FILTER)"
 fuzztest: fuzz_test
 

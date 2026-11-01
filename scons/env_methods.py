@@ -495,9 +495,19 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
         test = test_env.Program(test_path, src, **build_kwargs)
         _track_time(self, test, ctx)
 
+    if gentype == "fuzz":
+        _install_fuzz_inputs(test_env, module_name, scons_utils.as_list(src)[0], os_path.relpath(test_path, builder.build_path))
+
     ctx.state.add_targets(src)
     ctx.state.add_generated(gentype, registry, module_name, name, test_path)
     return test
+
+
+def _install_fuzz_inputs(env, module_name, src, program):
+    module_dir = os_path.join(builder.build_modules_path, module_name)
+    stem = os_path.splitext(os_path.relpath(env.File(src).srcnode().abspath, module_dir))[0]
+    for suffix in (".dict", ".seeds"):
+        scons_utils.install_module_res_into_build(env, module_name, stem + suffix, program + suffix, must_exist=False)
 
 
 def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):

@@ -4,7 +4,9 @@
 # every binary in FUZZ_BIN_PATH, a module keeps <app>_<module> and <app>_<module>_*,
 # a filter keeps the binaries whose name contains it. Per binary state lives in
 # <fuzz>/work/<binary>/: corpus/ is replayed and grown by every run, artifacts/ keeps
-# the crash-* inputs.
+# the crash-* inputs. <binary>.dict and <binary>.seeds/ next to a binary are its
+# dictionary and its read-only seed corpus; FUZZ_ARGS are extra libFuzzer flags,
+# parsed after the defaults so they win.
 set -uo pipefail
 
 # shellcheck source=/dev/null
@@ -31,7 +33,7 @@ else
 fi
 
 for bin in "${candidates[@]}"; do
-    [[ "$(basename -- "$bin")" == *"$name_filter"* ]] && bins+=("$bin")
+    [[ -f "$bin" && -x "$bin" && "$(basename -- "$bin")" == *"$name_filter"* ]] && bins+=("$bin")
 done
 
 if [[ ${#bins[@]} -eq 0 ]]; then
@@ -40,22 +42,22 @@ if [[ ${#bins[@]} -eq 0 ]]; then
 fi
 
 read -ra wrapper <<< "${DEBUGGER:-} ${DEBUGGER_ARGS:-}"
+read -ra extra_args <<< "${FUZZ_ARGS:-}"
 mkdir -p "$log_dir"
 cd "$FUZZ_PATH" || exit 1
 
 failed=0
 for bin in "${bins[@]}"; do
     name="$(basename -- "$bin")"
-    if [[ ! -x "$bin" ]]; then
-        printf 'Error: fuzzer %s not found\n' "$bin" >&2
-        failed=$((failed + 1))
-        continue
-    fi
-
     work="$FUZZ_PATH/work/$name"
     mkdir -p "$work/corpus" "$work/artifacts"
-    cmd=(timeout -k 10 "$((fuzz_time + 60))" env "${wrapper[@]}" "$bin"
-        "-max_total_time=$fuzz_time" "-artifact_prefix=$work/artifacts/" "$work/corpus")
+
+    fuzz_flags=("-max_total_time=$fuzz_time" -timeout=10 -use_value_profile=1 -print_final_stats=1
+        "-artifact_prefix=$work/artifacts/")
+    [[ -f "$bin.dict" ]] && fuzz_flags+=("-dict=$bin.dict")
+    inputs=("$work/corpus")
+    [[ -d "$bin.seeds" ]] && inputs+=("$bin.seeds")
+    cmd=(timeout -k 10 "$((fuzz_time + 60))" env "${wrapper[@]}" "$bin" "${fuzz_flags[@]}" "${extra_args[@]}" "${inputs[@]}")
 
     printf '\n# fuzzing: %s for %ss\n# command: %s\n\n' "$name" "$fuzz_time" "${cmd[*]}"
     "${cmd[@]}" 2>&1 | tee "$log_dir/$name.log"
@@ -64,6 +66,8 @@ for bin in "${bins[@]}"; do
         failed=$((failed + 1))
         printf '\n--- %s failed with exit code %s ---\nlog: %s/%s.log\nartifacts: %s/artifacts (replay: %s <artifact>)\n' \
             "$name" "$code" "$log_dir" "$name" "$work" "$bin"
+    else
+        printf '\n# %s: %s\n' "$name" "$(sed -n 's/^#[0-9]*[[:space:]]*DONE[[:space:]]*//p' "$log_dir/$name.log" | tail -n 1)"
     fi
 done
 

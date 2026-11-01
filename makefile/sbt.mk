@@ -60,6 +60,15 @@ SBT_GOAL_OVERRIDES := mode=release
 endif
 endif
 
+# make fuzztest resolves fuzz=1 before makevars too: fuzzing switches the compiler to clang, which is part of the build path
+ifeq ($(origin fuzz),undefined)
+ifneq ($(filter fuzztest fuzz_test dep_fuzztest dep_fuzz_test,$(word 1,$(MAKECMDGOALS)) $(word 1,$(MAKECMDGOALS))_$(word 2,$(MAKECMDGOALS))),)
+fuzz := 1
+export fuzz
+SBT_GOAL_OVERRIDES += fuzz=1
+endif
+endif
+
 MAKEVARS_TMP := $(shell mkdir -p '$(BUILD_ENTRY_PATH)' && mktemp '$(BUILD_ENTRY_PATH)/makevars.XXXXXX')
 MAKEVARS_RESULT := $(shell env $(MAKEOVERRIDES) $(SBT_GOAL_OVERRIDES) $(PYTHON_BIN) $(SBT_CLI) makevars > '$(MAKEVARS_TMP)' && echo ok || { rm -f '$(MAKEVARS_TMP)' '$(MAKEVARS_PATH)'; echo failed; })
 ifeq ($(MAKEVARS_RESULT),ok)
@@ -150,15 +159,16 @@ SCONS_BUILD_CMD = $(SCONS_PREFIX) scons -Q -j$(j) $(SCONS_ARGS)
 #     know yet); the builder warns once on names it never reads.
 # SBT_LOCAL_VARS are make-internal knobs the makefiles consume themselves
 # (j -> scons -j flag, repeat/jtest/test_timeout -> test env, save/compare/bench_threshold -> bench
-# baselines, fuzz_time -> fuzztest, SCONS_*/DEBUGGER*/TEST_RUNNER ->
+# baselines, fuzz_time/fuzz_args -> fuzztest, SCONS_*/DEBUGGER*/TEST_RUNNER ->
 # scons invocation, INSTALL_* -> install recipe, and any project extension
 # via SBT_EXTRA_OPTS): they are never forwarded.
 SBT_LOCAL_VARS := j repeat jtest test_timeout SBT_LOCK_TIMEOUT SCONS_ARGS SCONS_PREFIX DEBUGGER \
 	DEBUGGER_ARGS TEST_RUNNER INSTALL_PREFIX INSTALL_DESTDIR \
 	INSTALL_NOCONFIRM INSTALL_LIBSUFFIX INSTALL_BINSUFFIX \
 	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX INSTALL_SHARESUFFIX \
-	INSTALL_NO_EXTLIBS PORT brief save compare bench_threshold fuzz_time $(SBT_EXTRA_OPTS)
-SBT_FWD_NAMES := $(filter-out $(SBT_LOCAL_VARS) $(SBT_FWD_CORE),\
+	INSTALL_NO_EXTLIBS PORT brief save compare bench_threshold fuzz_time fuzz_args $(SBT_EXTRA_OPTS)
+#     A value holding spaces (fuzz_args="-a -b") splits in MAKEOVERRIDES: its dashed tail is no name.
+SBT_FWD_NAMES := $(filter-out -% $(SBT_LOCAL_VARS) $(SBT_FWD_CORE),\
 	$(foreach o,$(MAKEOVERRIDES),$(firstword $(subst =, ,$(o)))))
 BUILD_CMD_LINE = $(foreach n,$(SBT_FWD_CORE),$(if $($(n)),$(n)=$($(n)))) \
 	$(foreach n,$(SBT_FWD_NAMES),$(filter $(n)=%,$(MAKEOVERRIDES)))
@@ -219,7 +229,7 @@ help:
 	$(call mk_log_info,makefile,run cppcheck static analysis: make cppcheck [m=modules])
 	$(call mk_log_info,makefile,run tests with coverage and emit cobertura xml: make covtest [m=modules])
 	$(call mk_log_info,makefile,build and run benchmarks (mode=release unless given): make bench [m=modules] [t=regex] [repeat=N] [save=name] [compare=name])
-	$(call mk_log_info,makefile,fuzz with libFuzzer (clang, native linux): make fuzztest compiler=clang [m=modules] [fuzz_time=seconds])
+	$(call mk_log_info,makefile,fuzz with libFuzzer (switches to clang, native linux only): make fuzztest [m=modules] [t=filter] [fuzz_time=seconds] [fuzz_args=libFuzzer flags])
 	$(call mk_log_info,makefile,profile tests with perf and list the slowest ones (native only): make perftest [m=modules] [jtest=x])
 	$(call mk_log_info,makefile,build with static libs: static=1)
 	$(call mk_log_info,makefile,build specific release: mode=debug|release)
