@@ -20,6 +20,7 @@
 #   ivtest iltest             non-interactive valgrind / valgrind leak check
 #   bench                    build (mode=release unless given) and run bench binaries from <build>/bench
 #   perftest perf_test iperftest nointeract_perf_test   perf record each test binary (native only), lists the slowest tests
+#   fuzztest fuzz_test       build libFuzzer binaries (clang, native linux; asan+ubsan) and run each for fuzz_time seconds
 .PHONY: $(TEST_GOALS)
 
 # enter the test branch only for goals in the exact TEST_GOALS list (args.mk)
@@ -75,6 +76,7 @@ endif
 
 ifneq ($(MODULES_NAME), )
 test: modules = $(MODULES_NAME)
+fuzz_test: modules = $(MODULES_NAME)
 endif
 
 COMMA := ,
@@ -132,6 +134,20 @@ lvaltest: valgrind_leak_test
 bench: bench = 1
 bench: TEST_BENCH = 1
 bench: test
+
+fuzz_test: fuzz = 1
+fuzz_test: asan = 1
+fuzz_test: ubsan = 1
+fuzz_test: build
+	$(call mk_log_info,makefile,starting fuzzers in build: $(FUZZ_PATH))
+	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
+	$(QUIET) env SBT_ENV_JSON="$(SBT_ENV_JSON_PATH)" \
+					bash $(MAKEFILE_TOOLS)/scripts/tests/generate.sh
+	$(QUIET) env DEBUGGER="$(DEBUGGER)" \
+					DEBUGGER_ARGS="$(DEBUGGER_ARGS)" \
+					FUZZ_TIME="$(fuzz_time)" \
+					bash $(MAKEFILE_TOOLS)/scripts/tests/fuzz.sh "$(TEST_PATH)/.env" "$(MODULES_NAME_SPLIT)"
+fuzztest: fuzz_test
 
 perf_test: TEST_PERF = 1
 perf_test: test

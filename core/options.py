@@ -62,7 +62,7 @@ def _machine(value):
 
 _BOOL_OPTIONS = (
     "asan", "bench", "combined", "compile_commands", "compile_time", "coverage", "demo",
-    "docker_build_local", "fgit", "hwasan", "lsan", "msan", "nocache", "static",
+    "docker_build_local", "fgit", "fuzz", "hwasan", "lsan", "msan", "nocache", "static",
     "test", "tsan", "ubsan", "v", "verbose",
 )
 
@@ -93,6 +93,7 @@ _LOCAL_OPTIONS = {
     "repeat": _count,
     "test_timeout": _seconds,
     "bench_threshold": _count,
+    "fuzz_time": _count,
     "PORT": _port,
     "SBT_LOCK_TIMEOUT": _seconds,
 }

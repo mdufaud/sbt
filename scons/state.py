@@ -19,6 +19,7 @@ class BuildState:
         self.generated_bins = {}
         self.generated_tests = {}
         self.generated_benches = {}
+        self.generated_fuzzes = {}
         self.generated_demos = {}
 
         # Test infrastructure shared between modules

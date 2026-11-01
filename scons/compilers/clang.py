@@ -39,5 +39,7 @@ def load_in_env(env):
     if builder.build_msan:
         msan_flags = ["-fsanitize=memory", "-fno-omit-frame-pointer", "-fsanitize-memory-track-origins"]
         env.Append(CPPFLAGS = msan_flags, LINKFLAGS = msan_flags)
+    if builder.build_fuzz:
+        env.Append(CPPFLAGS = ["-fsanitize=fuzzer-no-link"])
     compilers.apply_common_sanitizers(env)
     compilers.apply_static_libasan(env)

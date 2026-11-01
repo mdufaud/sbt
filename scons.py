@@ -82,6 +82,7 @@ if verbose:
     logger.info("mode: " + build_mode)
     logger.info("tests: " + (builder.build_tests and "yes" or "no"))
     logger.info("benches: " + (builder.build_benches and "yes" or "no"))
+    logger.info("fuzzers: " + (builder.build_fuzz and "yes" or "no"))
     logger.info("libraries: " + (builder.build_static_libs and "static" or "shared"))
     logger.info("address sanitizer: " + (builder.build_asan and "yes" or "no"))
     logger.info("undefined behavior sanitizer: " + (builder.build_ubsan and "yes" or "no"))
@@ -153,6 +154,9 @@ if pkg_manager_name:
     if builder.build_benches:
         bench_extlibs = modules.get_extlibs_versions(app, getattr(app, "bench_extlibs", []))
         deps.update(collect_packages(bench_extlibs).keys())
+    if builder.build_fuzz:
+        fuzz_extlibs = modules.get_extlibs_versions(app, getattr(app, "fuzz_extlibs", []))
+        deps.update(collect_packages(fuzz_extlibs).keys())
     if builder.build_demo:
         demo_extlibs = modules.get_extlibs_versions(app, getattr(app, "demo_extlibs", []))
         deps.update(collect_packages(demo_extlibs).keys())
@@ -541,7 +545,7 @@ import atexit
 def merge_built():
     merged = {}
     for d in [build_state.generated_bins, build_state.generated_tests, build_state.generated_demos,
-              build_state.generated_benches]:
+              build_state.generated_benches, build_state.generated_fuzzes]:
         for key, value in d.items():
             merged.setdefault(key, []).extend(value)
     return merged
@@ -567,7 +571,7 @@ def after_build():
     if success:
         scons_utils.build_print_built(
             build_state.generated_bins, build_state.generated_demos, build_state.generated_tests,
-            build_state.generated_benches
+            build_state.generated_benches, build_state.generated_fuzzes
         )
         builder.generate_runner()
         # optional user callback, independent from the built-artefacts report

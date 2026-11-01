@@ -10,6 +10,7 @@ Public API (methods available in module scons.py scripts):
   env.build_bin(src, name=None, libs=[], android_dir=None, static_stdlib=False, static_libs=False, **kwargs)
   env.build_test(src, name=None, libs=[], static_stdlib=False, static_libs=False, **kwargs)
   env.build_bench(src, name=None, libs=[], static_stdlib=False, static_libs=False, **kwargs)
+  env.build_fuzz(src, name=None, libs=[], static_stdlib=False, static_libs=False, **kwargs)
   env.build_demo(src, name, libs=[], android_dir=None, static_stdlib=False, static_libs=False, **kwargs)
   # static_libs: True (wrap all LIBS, requires .a files) or list[str] (wrap named libs only)
   env.build_demos(srcs, **kwargs)
@@ -438,6 +439,11 @@ def _build_bench(self, src, name, libs, ctx, **kwargs):
                                builder.build_bench_path, "bench", ctx.state.generated_benches, **kwargs)
 
 
+def _build_fuzz(self, src, name, libs, ctx, **kwargs):
+    return _build_test_program(self, src, name, libs, ctx, builder.build_fuzz,
+                               builder.build_fuzz_path, "fuzz", ctx.state.generated_fuzzes, **kwargs)
+
+
 def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, registry, **kwargs):
     static_stdlib = kwargs.pop("static_stdlib", False)
     static_libs = kwargs.pop("static_libs", False)
@@ -448,6 +454,8 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
         return None
 
     test_env = _clone_env_with_new_libs(self, libs, static_stdlib)
+    if gentype == "fuzz":
+        test_env.Append(LINKFLAGS=["-fsanitize=fuzzer"])
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
     if cpp_mods and not builder.is_cpp_modules:
         return None
@@ -762,6 +770,9 @@ def register_methods(base_env, ctx):
     def build_bench(self, src, name=None, libs=[], **kwargs):
         return _build_bench(self, src, name, libs, ctx, **kwargs)
 
+    def build_fuzz(self, src, name=None, libs=[], **kwargs):
+        return _build_fuzz(self, src, name, libs, ctx, **kwargs)
+
     def build_demo(self, src, name, libs=[], android_dir=None, **kwargs):
         return _build_demo(self, src, name, libs, android_dir, ctx, **kwargs)
 
@@ -817,6 +828,7 @@ def register_methods(base_env, ctx):
     base_env.AddMethod(build_bin, "build_bin")
     base_env.AddMethod(build_test, "build_test")
     base_env.AddMethod(build_bench, "build_bench")
+    base_env.AddMethod(build_fuzz, "build_fuzz")
     base_env.AddMethod(build_demo, "build_demo")
     base_env.AddMethod(build_demos, "build_demos")
     base_env.AddMethod(build_cpp_modules, "build_cpp_modules")

@@ -330,6 +330,9 @@ def has_demo():
 def has_bench():
     return utils.is_opt("bench")
 
+def has_fuzz():
+    return utils.is_opt("fuzz")
+
 def is_address_sanitizer():
     return utils.is_opt("asan")
 
@@ -480,6 +483,7 @@ build_combined = has_combined()
 build_tests = has_test()
 build_demo = has_demo()
 build_benches = has_bench()
+build_fuzz = has_fuzz()
 build_verbose = has_verbose()
 logger.set_verbose(build_verbose)
 
@@ -533,6 +537,7 @@ build_etc_path = join(build_path, "etc")
 build_share_path = join(build_path, "share")
 build_test_path = join(build_path, "test")
 build_bench_path = join(build_path, "bench")
+build_fuzz_path = join(build_path, "fuzz")
 build_export_path = join(build_path, "export")
 build_demo_path = join(build_path, "demo")
 build_obj_path = join(build_path, "obj")
@@ -737,6 +742,7 @@ def _enabled_sanitizers():
         "msan": build_msan,
         "hwasan": build_hwasan,
         "coverage": build_coverage,
+        "fuzz": build_fuzz,
     }
 
 def _check_unsupported_sanitizers(compiler_label):
@@ -783,6 +789,10 @@ def verify_args(app):
 
     if build_msan and build_compiler != "clang":
         logger.error("memory sanitizer (msan) is only supported with clang")
+        ret = False
+
+    if build_fuzz and (build_compiler != "clang" or build_platform != "linux" or is_cross_building()):
+        logger.error("fuzzing (fuzz) requires a native linux build with clang")
         ret = False
 
     if build_hwasan and build_machine != "arm64":

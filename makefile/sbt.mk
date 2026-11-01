@@ -150,14 +150,14 @@ SCONS_BUILD_CMD = $(SCONS_PREFIX) scons -Q -j$(j) $(SCONS_ARGS)
 #     know yet); the builder warns once on names it never reads.
 # SBT_LOCAL_VARS are make-internal knobs the makefiles consume themselves
 # (j -> scons -j flag, repeat/jtest/test_timeout -> test env, save/compare/bench_threshold -> bench
-# baselines, SCONS_*/DEBUGGER*/TEST_RUNNER ->
+# baselines, fuzz_time -> fuzztest, SCONS_*/DEBUGGER*/TEST_RUNNER ->
 # scons invocation, INSTALL_* -> install recipe, and any project extension
 # via SBT_EXTRA_OPTS): they are never forwarded.
 SBT_LOCAL_VARS := j repeat jtest test_timeout SBT_LOCK_TIMEOUT SCONS_ARGS SCONS_PREFIX DEBUGGER \
 	DEBUGGER_ARGS TEST_RUNNER INSTALL_PREFIX INSTALL_DESTDIR \
 	INSTALL_NOCONFIRM INSTALL_LIBSUFFIX INSTALL_BINSUFFIX \
 	INSTALL_ETCSUFFIX INSTALL_INCLUDESUFFIX INSTALL_SHARESUFFIX \
-	INSTALL_NO_EXTLIBS PORT brief save compare bench_threshold $(SBT_EXTRA_OPTS)
+	INSTALL_NO_EXTLIBS PORT brief save compare bench_threshold fuzz_time $(SBT_EXTRA_OPTS)
 SBT_FWD_NAMES := $(filter-out $(SBT_LOCAL_VARS) $(SBT_FWD_CORE),\
 	$(foreach o,$(MAKEOVERRIDES),$(firstword $(subst =, ,$(o)))))
 BUILD_CMD_LINE = $(foreach n,$(SBT_FWD_CORE),$(if $($(n)),$(n)=$($(n)))) \
@@ -219,6 +219,7 @@ help:
 	$(call mk_log_info,makefile,run cppcheck static analysis: make cppcheck [m=modules])
 	$(call mk_log_info,makefile,run tests with coverage and emit cobertura xml: make covtest [m=modules])
 	$(call mk_log_info,makefile,build and run benchmarks (mode=release unless given): make bench [m=modules] [t=regex] [repeat=N] [save=name] [compare=name])
+	$(call mk_log_info,makefile,fuzz with libFuzzer (clang, native linux): make fuzztest compiler=clang [m=modules] [fuzz_time=seconds])
 	$(call mk_log_info,makefile,profile tests with perf and list the slowest ones (native only): make perftest [m=modules] [jtest=x])
 	$(call mk_log_info,makefile,build with static libs: static=1)
 	$(call mk_log_info,makefile,build specific release: mode=debug|release)
@@ -382,6 +383,7 @@ clean:
 	rm -rf $(BIN_PATH)
 	rm -rf $(TEST_PATH)
 	rm -rf $(BENCH_PATH)
+	rm -rf $(FUZZ_PATH)
 	rm -rf $(EXPORT_PATH)
 	rm -rf $(DEMO_PATH)
 	rm -rf $(BUILD_PATH)/gradle

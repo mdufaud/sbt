@@ -37,6 +37,8 @@ def main():
     ex("TEST_BIN_PATH", b + "/" + p["test_bin"])
     ex("BENCH_PATH", b + "/" + p["bench"])
     ex("BENCH_BIN_PATH", b + "/" + p["bench_bin"])
+    ex("FUZZ_PATH", b + "/" + p["fuzz"])
+    ex("FUZZ_BIN_PATH", b + "/" + p["fuzz_bin"])
     ex("EXPORT_PATH", b + "/" + p["export"])
     ex("TEST_RUNNER", d["test"]["runner"])
     ex("TEST_BIN_EXT", d["test"]["bin_ext"])
