@@ -683,7 +683,7 @@ make hwasantest / make ihwasantest  # Tests with HWASan (arm64 only)
 make covtest                        # Tests + Cobertura coverage report
 make bench m=app                    # Build (mode=release) + run benchmark binaries only
 make bench compare=main             # ... and compare with a saved baseline (save=main)
-make fuzztest compiler=clang m=app  # Build + run the libFuzzer binaries (fuzz_time=seconds each)
+make fuzztest compiler=clang m=app t=Slice  # Build + run the libFuzzer binaries (fuzz_time=seconds each)
 make perftest m=app                   # perf record each test binary + the slowest tests
 make iperftest                       # Same, non-interactive
 make test repeat=3 brief=1           # Repeat tests and keep passing output in logs
@@ -898,19 +898,24 @@ native linux build, so pass `compiler=clang`: any other combination stops at sta
 sanitizer. The goal has no non-interactive variant and no timeout other than `fuzz_time`; `DEBUGGER` and
 `DEBUGGER_ARGS` wrap each fuzzer (a memory cap, valgrind, ...).
 
-A module declares its fuzzer in its `scons.py`, `env.build_fuzz` builds nothing without `fuzz=1`:
+A module declares its fuzzers in its `scons.py`, one per source file (one class per file, like the tests and
+the benchmarks); `env.build_fuzz` builds nothing without `fuzz=1`:
 
 ```python
-env.build_fuzz(Glob('fuzz/*.cpp'), libs=[env.module_format_name()])
+for src in Glob('fuzz/*.cpp'):
+    env.build_fuzz(src, name=env.module_format_name() + '_' + env.file_basename(src),
+                   libs=[env.module_format_name()])
 ```
 
-The sources define `LLVMFuzzerTestOneInput` (libFuzzer provides `main`; `<fuzzer/FuzzedDataProvider.h>` ships
-with clang). Compared to a test binary the link adds `-fsanitize=fuzzer`, the app conf is `fuzz_extlibs`,
-`fuzz_libs`, ... (`make dep fuzz=1` installs `fuzz_extlibs`) instead of `test_*`, and
-the module pch is used without its test header. A harness reports a broken property with `abort()`.
+Each source defines its own `LLVMFuzzerTestOneInput` (libFuzzer provides `main`; `<fuzzer/FuzzedDataProvider.h>`
+ships with clang), so a fuzzer keeps one corpus and one coverage focus. Compared to a test binary the link adds
+`-fsanitize=fuzzer`, the app conf is `fuzz_extlibs`, `fuzz_libs`, ... (`make dep fuzz=1` installs `fuzz_extlibs`)
+instead of `test_*`, and the module pch is used without its test header. A harness reports a broken property
+with `abort()`.
 
-Binaries land in `<build_path>/fuzz/bin/<app>_<module>`. `m=` selects the default-named fuzzer of a module;
-without it every binary of that directory runs. Per binary, state lives in `<build_path>/fuzz/work/<binary>/`:
+Binaries land in `<build_path>/fuzz/bin/`. `m=` keeps the binaries named `<app>_<module>` or
+`<app>_<module>_*`, `t=` (or `make fuzztest MODULE FILTER`) those whose name contains the filter; without
+either every binary of that directory runs, `fuzz_time` seconds each. Per binary, state lives in `<build_path>/fuzz/work/<binary>/`:
 
 - `corpus/` — replayed and grown by every run, so coverage accumulates between runs.
 - `artifacts/` — the `crash-*`, `oom-*` and `timeout-*` inputs; replay one with `<binary> <artifact>`.

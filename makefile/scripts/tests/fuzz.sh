@@ -1,26 +1,38 @@
 #!/usr/bin/env bash
 # Runs the libFuzzer binaries built by make fuzztest, each for FUZZ_TIME seconds
-# (default 15). Usage: fuzz.sh <test .env file> "<modules>" ; no module = every
-# binary in FUZZ_BIN_PATH. Per binary state lives in <fuzz>/work/<binary>/: corpus/
-# is replayed and grown by every run, artifacts/ keeps the crash-* inputs.
+# (default 15). Usage: fuzz.sh <test .env file> "<modules>" "<filter>" ; no module =
+# every binary in FUZZ_BIN_PATH, a module keeps <app>_<module> and <app>_<module>_*,
+# a filter keeps the binaries whose name contains it. Per binary state lives in
+# <fuzz>/work/<binary>/: corpus/ is replayed and grown by every run, artifacts/ keeps
+# the crash-* inputs.
 set -uo pipefail
 
 # shellcheck source=/dev/null
 source "$1"
 module_list="$2"
+name_filter="$3"
 
 fuzz_time="${FUZZ_TIME:-15}"
 log_dir="$FUZZ_PATH/logs"
+candidates=()
 bins=()
 
 shopt -s nullglob
 if [[ -z "${module_list// }" || "${module_list// }" == "all" ]]; then
-    bins=("$FUZZ_BIN_PATH"/*)
+    candidates=("$FUZZ_BIN_PATH"/*)
 else
     for module in $module_list; do
-        bins+=("$FUZZ_BIN_PATH/${APP_NAME}_${module}${TEST_BIN_EXT}")
+        before=${#candidates[@]}
+        for bin in "$FUZZ_BIN_PATH/${APP_NAME}_${module}${TEST_BIN_EXT}" "$FUZZ_BIN_PATH/${APP_NAME}_${module}_"*; do
+            [[ -e "$bin" ]] && candidates+=("$bin")
+        done
+        [[ ${#candidates[@]} -gt $before ]] || printf 'Warning: no fuzzer for module %s\n' "$module" >&2
     done
 fi
+
+for bin in "${candidates[@]}"; do
+    [[ "$(basename -- "$bin")" == *"$name_filter"* ]] && bins+=("$bin")
+done
 
 if [[ ${#bins[@]} -eq 0 ]]; then
     printf 'Error: no fuzzer binaries found in %s\n' "$FUZZ_BIN_PATH" >&2
