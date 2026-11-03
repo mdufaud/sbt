@@ -3,6 +3,7 @@ package __SBT_NAMESPACE__
 import android.app.Activity
 import android.content.Intent
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +13,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -47,6 +50,7 @@ class TerminalActivity : Activity() {
     @Volatile
     private var stdinPipeFd: Int = -1
     private var userScrolling = false
+    private var backCallback: Any? = null
 
     // Output batching to avoid flooding UI thread; flushPending is guarded by outputBuffer
     private val outputBuffer = StringBuilder()
@@ -155,9 +159,30 @@ class TerminalActivity : Activity() {
             handler.post {
                 flushOutput()
                 updateActionBar()
+                keepRunningOnBack(false)
             }
         }
         nativeThread!!.start()
+        keepRunningOnBack(true)
+    }
+
+    // Finishing the activity closes the program's stdin: back only hides a running program
+    private fun keepRunningOnBack(running: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (running) {
+            val callback = OnBackInvokedCallback { moveTaskToBack(true) }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+            backCallback = callback
+        } else {
+            (backCallback as? OnBackInvokedCallback)?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+            backCallback = null
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (processRunning) moveTaskToBack(true) else super.onBackPressed()
     }
 
     private fun updateActionBar() {
