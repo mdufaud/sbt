@@ -12,7 +12,7 @@
             android:name="__SBT_NAMESPACE__.TerminalActivity"
             android:theme="@android:style/Theme.NoTitleBar"
             android:windowSoftInputMode="adjustResize|stateHidden"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|uiMode|locale|layoutDirection|navigation|touchscreen|mcc|mnc|colorMode"
             android:exported="true">
 
             <intent-filter>

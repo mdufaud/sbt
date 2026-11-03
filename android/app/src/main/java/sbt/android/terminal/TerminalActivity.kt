@@ -40,34 +40,38 @@ class TerminalActivity : Activity() {
     private lateinit var argsField: EditText
     private lateinit var sendBtn: Button
     private lateinit var restartBtn: Button
-    private val handler = Handler(Looper.getMainLooper())
-
-    private var nativeThread: Thread? = null
-    @Volatile
-    private var processRunning = false
-    // One writer thread keeps stdin lines ordered and serializes the final close
-    private val stdinWriter = Executors.newSingleThreadExecutor()
-    @Volatile
-    private var stdinPipeFd: Int = -1
     private var userScrolling = false
     private var backCallback: Any? = null
-
-    // Output batching to avoid flooding UI thread; flushPending is guarded by outputBuffer
-    private val outputBuffer = StringBuilder()
-    private var flushPending = false
-
-    // ANSI SGR parser state, carried across flushes
-    private var ansiFg: Int? = null
-    private var ansiBold = false
-    private val ansiPending = StringBuilder()
-
-    // Scrollback cap: keep the newest chars, drop oldest whole lines. Bounds the
-    // TextView buffer so append + relayout stay O(1) per flush instead of O(n).
-    private val maxOutputChars = 100_000
 
     companion object {
         var loadError: Throwable? = null
         @Volatile var nativeMainCalled = false
+
+        // main() runs once per process and outlives a recreated activity: its state lives here
+        @Volatile
+        private var processRunning = false
+        // One writer thread keeps stdin lines ordered and serializes the final close
+        private val stdinWriter = Executors.newSingleThreadExecutor()
+        @Volatile
+        private var stdinPipeFd: Int = -1
+        private val handler = Handler(Looper.getMainLooper())
+
+        // Main thread only: the activity showing the output, and the text a destroyed one left
+        private var attached: TerminalActivity? = null
+        private var detachedOutput: CharSequence? = null
+
+        // Output batching to avoid flooding UI thread; flushPending is guarded by outputBuffer
+        private val outputBuffer = StringBuilder()
+        private var flushPending = false
+
+        // ANSI SGR parser state, carried across flushes
+        private var ansiFg: Int? = null
+        private var ansiBold = false
+        private val ansiPending = StringBuilder()
+
+        // Scrollback cap: keep the newest chars, drop oldest whole lines. Bounds the
+        // TextView buffer so append + relayout stay O(1) per flush instead of O(n).
+        private const val maxOutputChars = 100_000
 
         // ANSI 16-color palette (VS Code dark terminal theme)
         private val ANSI_NORMAL = intArrayOf(
@@ -85,6 +89,41 @@ class TerminalActivity : Activity() {
                 loadError = e
             }
         }
+
+        // Drop oldest whole lines past maxOutputChars, never a line cut mid-way
+        private fun oldestOverflow(text: CharSequence): Int {
+            val overflow = text.length - maxOutputChars
+            if (overflow <= 0) return 0
+            val nl = TextUtils.indexOf(text, '\n', overflow)
+            return if (nl >= 0) nl + 1 else overflow
+        }
+
+        @JvmStatic
+        fun appendOutput(text: String) {
+            val schedule: Boolean
+            synchronized(outputBuffer) {
+                outputBuffer.append(text)
+                // no activity drains the buffer while the program runs in the background
+                outputBuffer.delete(0, oldestOverflow(outputBuffer))
+                schedule = !flushPending
+                flushPending = true
+            }
+            if (schedule) {
+                handler.postDelayed({ attached?.flushOutput() }, 32)
+            }
+        }
+
+        @JvmStatic
+        fun setStdinPipeFd(fd: Int) {
+            stdinPipeFd = fd
+        }
+
+        @JvmStatic
+        private external fun nativeMain(args: Array<String>, cacheDir: String)
+        @JvmStatic
+        private external fun nativeWriteStdin(fd: Int, text: String)
+        @JvmStatic
+        private external fun nativeCloseStdin(fd: Int)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,10 +132,8 @@ class TerminalActivity : Activity() {
             showError("Failed to load native library", loadError!!)
             return
         }
-        // If the process is still alive but the Activity was recreated (e.g. Android
-        // reclaimed it after hours in background), native global state from the previous
-        // main() call is corrupted. Kill the process and relaunch cleanly.
-        if (nativeMainCalled) {
+        // main() runs once per process: a terminal the user closed is reopened in a new process
+        if (nativeMainCalled && detachedOutput == null) {
             val intent = packageManager.getLaunchIntentForPackage(packageName)
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -107,8 +144,11 @@ class TerminalActivity : Activity() {
         }
         try {
             setupUI()
-            val argsStr = intent.getStringExtra("restart_args")
-            launchNative(splitArgs(argsStr ?: ""))
+            if (!nativeMainCalled) {
+                val argsStr = intent.getStringExtra("restart_args")
+                launchNative(splitArgs(argsStr ?: ""))
+            }
+            attach()
         } catch (e: Throwable) {
             showError("Activity setup failed", e)
         }
@@ -116,12 +156,28 @@ class TerminalActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (attached !== this) return
+        attached = null
+        // Android recreates the activity: the next one shows this output to the same program
+        if (!isFinishing) {
+            detachedOutput = outputView.text
+            return
+        }
         val fd = stdinPipeFd
         stdinPipeFd = -1
         if (fd >= 0) {
             stdinWriter.execute { nativeCloseStdin(fd) }
         }
-        stdinWriter.shutdown()
+    }
+
+    private fun attach() {
+        attached = this
+        detachedOutput?.let { outputView.setText(it, TextView.BufferType.EDITABLE) }
+        detachedOutput = null
+        flushOutput()
+        scrollToBottom()
+        updateActionBar()
+        keepRunningOnBack(processRunning)
     }
 
     // Whitespace-separated, with '...' and "..." grouping (no escapes inside quotes)
@@ -146,24 +202,22 @@ class TerminalActivity : Activity() {
     private fun launchNative(args: Array<String>) {
         nativeMainCalled = true
         processRunning = true
-        handler.post { updateActionBar() }
-        nativeThread = Thread {
+        val cachePath = cacheDir.absolutePath
+        Thread {
             try {
-                nativeMain(args)
+                nativeMain(args, cachePath)
             } catch (e: Throwable) {
-                handler.post {
-                    outputView.append("\n[JNI Error] ${e.message}\n")
-                }
+                appendOutput("\n[JNI Error] ${e.message}\n")
             }
             processRunning = false
-            handler.post {
-                flushOutput()
-                updateActionBar()
-                keepRunningOnBack(false)
-            }
-        }
-        nativeThread!!.start()
-        keepRunningOnBack(true)
+            handler.post { attached?.onProgramExited() }
+        }.start()
+    }
+
+    private fun onProgramExited() {
+        flushOutput()
+        updateActionBar()
+        keepRunningOnBack(false)
     }
 
     // Finishing the activity closes the program's stdin: back only hides a running program
@@ -414,17 +468,11 @@ class TerminalActivity : Activity() {
         }
     }
 
-    // Drop oldest lines once the buffer exceeds maxOutputChars. Deletes up to the
-    // next newline after the overflow so a line is never cut mid-way; the removed
-    // range's spans go with it. TextView.append makes the text Editable, so
-    // editableText is non-null here.
+    // The removed range's spans go with it. TextView.append makes the text
+    // Editable, so editableText is non-null here.
     private fun trimOutput() {
         val editable = outputView.editableText ?: return
-        val overflow = editable.length - maxOutputChars
-        if (overflow <= 0) return
-        val nl = TextUtils.indexOf(editable, '\n', overflow)
-        val cut = if (nl >= 0) nl + 1 else overflow
-        editable.delete(0, cut)
+        editable.delete(0, oldestOverflow(editable))
     }
 
     // Translate ANSI SGR escapes into colored/bold spans, stripping other CSI
@@ -480,33 +528,6 @@ class TerminalActivity : Activity() {
             }
         }
     }
-
-    @Suppress("unused")
-    fun appendOutput(text: String) {
-        val schedule: Boolean
-        synchronized(outputBuffer) {
-            outputBuffer.append(text)
-            schedule = !flushPending
-            flushPending = true
-        }
-        if (schedule) {
-            handler.postDelayed({ flushOutput() }, 32)
-        }
-    }
-
-    @Suppress("unused")
-    fun setStdinPipeFd(fd: Int) {
-        stdinPipeFd = fd
-    }
-
-    @Suppress("unused")
-    fun getCacheAbsolutePath(): String {
-        return cacheDir.absolutePath
-    }
-
-    private external fun nativeMain(args: Array<String>)
-    private external fun nativeWriteStdin(fd: Int, text: String)
-    private external fun nativeCloseStdin(fd: Int)
 
     private fun showError(title: String, error: Throwable) {
         val tv = TextView(this).apply {

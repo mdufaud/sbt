@@ -41,7 +41,8 @@ constexpr const char *PROGRAM_NAME = "__SBT_PROJECT_NAME__";
 constexpr auto DRAIN_TIMEOUT = std::chrono::seconds(2);
 
 JavaVM *g_jvm = nullptr;
-jobject g_activity = nullptr;
+// Static methods only: the activity instance may be recreated while main() runs
+jclass g_activity_class = nullptr;
 jmethodID g_append_output = nullptr;
 
 int g_saved_stdout = -1;
@@ -59,10 +60,10 @@ int g_exit_code = 0;
 
 void forward_to_java(JNIEnv *env, std::string_view text)
 {
-    if (env == nullptr || g_activity == nullptr || g_append_output == nullptr)
+    if (env == nullptr || g_activity_class == nullptr || g_append_output == nullptr)
         return;
     jstring jstr = sbt::jni::to_jstring(env, text);
-    env->CallVoidMethod(g_activity, g_append_output, jstr);
+    env->CallStaticVoidMethod(g_activity_class, g_append_output, jstr);
     env->DeleteLocalRef(jstr);
     (void)sbt::jni::clear_exception(env);
 }
@@ -137,19 +138,9 @@ void setup_crash_handlers()
         sigaction(sig, &sa, nullptr);
 }
 
-void setup_tmpdir(JNIEnv *env, jobject thiz)
+void setup_tmpdir(JNIEnv *env, jstring jpath)
 {
-    jclass clazz = env->GetObjectClass(thiz);
-    jmethodID method = env->GetMethodID(clazz, "getCacheAbsolutePath", "()Ljava/lang/String;");
-    env->DeleteLocalRef(clazz);
-    if (method == nullptr)
-    {
-        (void)sbt::jni::clear_exception(env);
-        return;
-    }
-    jstring jpath = (jstring)env->CallObjectMethod(thiz, method);
     const std::string path = sbt::jni::to_string(env, jpath);
-    env->DeleteLocalRef(jpath);
     if (path.empty())
         return;
     setenv("TMPDIR", path.c_str(), 1);
@@ -237,7 +228,7 @@ bool capture_fd(int target, int & saved)
     return true;
 }
 
-int setup_stdin(JNIEnv *env, jobject thiz)
+int setup_stdin(JNIEnv *env)
 {
     int fds[2] = {-1, -1};
     if (pipe(fds) != 0)
@@ -248,16 +239,14 @@ int setup_stdin(JNIEnv *env, jobject thiz)
     g_saved_stdin = dup(STDIN_FILENO);
     dup2(fds[0], STDIN_FILENO);
     close(fds[0]);
-    jclass clazz = env->GetObjectClass(thiz);
-    jmethodID set_fd = env->GetMethodID(clazz, "setStdinPipeFd", "(I)V");
-    env->DeleteLocalRef(clazz);
+    jmethodID set_fd = env->GetStaticMethodID(g_activity_class, "setStdinPipeFd", "(I)V");
     if (set_fd == nullptr)
     {
         (void)sbt::jni::clear_exception(env);
         close(fds[1]);
         return -1;
     }
-    env->CallVoidMethod(thiz, set_fd, fds[1]);
+    env->CallStaticVoidMethod(g_activity_class, set_fd, fds[1]);
     return fds[1];
 }
 
@@ -292,13 +281,12 @@ extern "C" [[noreturn]] void __wrap_exit(int code)
 }
 
 extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_nativeMain(JNIEnv *env,
-                                                                                         jobject thiz,
-                                                                                         jobjectArray jargs)
+                                                                                         jclass clazz,
+                                                                                         jobjectArray jargs,
+                                                                                         jstring jcache_dir)
 {
     env->GetJavaVM(&g_jvm);
-    jclass clazz = env->GetObjectClass(thiz);
-    g_append_output = env->GetMethodID(clazz, "appendOutput", "(Ljava/lang/String;)V");
-    env->DeleteLocalRef(clazz);
+    g_append_output = env->GetStaticMethodID(clazz, "appendOutput", "(Ljava/lang/String;)V");
     if (g_append_output == nullptr)
     {
         __android_log_write(ANDROID_LOG_ERROR, LOG_TAG, "JNI method lookup failed: appendOutput(String)");
@@ -306,9 +294,9 @@ extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_na
         return;
     }
     // Kept for the process lifetime: readers may outlive nativeMain when writers linger.
-    g_activity = env->NewGlobalRef(thiz);
+    g_activity_class = static_cast<jclass>(env->NewGlobalRef(clazz));
 
-    setup_tmpdir(env, thiz);
+    setup_tmpdir(env, jcache_dir);
 
     const jsize jargs_len = jargs != nullptr ? env->GetArrayLength(jargs) : 0;
     std::vector<std::string> arg_strings;
@@ -338,7 +326,7 @@ extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_na
     }
     setvbuf(stdout, nullptr, _IONBF, 0);
     setvbuf(stderr, nullptr, _IONBF, 0);
-    (void)setup_stdin(env, thiz);
+    (void)setup_stdin(env);
     setup_crash_handlers();
 
     std::string status;
@@ -369,7 +357,7 @@ extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_na
 }
 
 extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_nativeWriteStdin(JNIEnv *env,
-                                                                                               [[maybe_unused]] jobject thiz,
+                                                                                               [[maybe_unused]] jclass clazz,
                                                                                                jint fd,
                                                                                                jstring jtext)
 {
@@ -390,7 +378,7 @@ extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_na
 }
 
 extern "C" JNIEXPORT void JNICALL Java___SBT_NAMESPACE_JNI___TerminalActivity_nativeCloseStdin([[maybe_unused]] JNIEnv *env,
-                                                                                               [[maybe_unused]] jobject thiz,
+                                                                                               [[maybe_unused]] jclass clazz,
                                                                                                jint fd)
 {
     if (fd >= 0)

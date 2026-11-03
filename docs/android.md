@@ -329,6 +329,7 @@ silently producing an unsigned APK.
 - `exit()` / `std::exit()` called from `main`'s thread ends the program like a return from `main` and the output stays on screen (the APK is linked with `-Wl,--wrap=exit`). Like a real `exit()`, destructors of the frames being left do not run; `atexit` handlers and static destructors do not run either, since the app keeps living. In a shared (non-`static=1`) build, `exit()` inside a module `.so` is not wrapped and still closes the app.
 - Output written after `main` returns through a duplicated fd is still shown; the exit line then notes that a background writer keeps stdout/stderr open.
 - Output printed by static constructors (before `main`) is not captured.
+- `main` runs once per process and outlives the activity. Back hides a running program instead of closing it. An activity Android recreates (font size, theme colors, an activity destroyed in the background) reattaches to the running program with its output and stdin; output printed meanwhile is kept, up to the scrollback cap. Closing the terminal for good (back once the program ended, swiping it from recents) closes stdin; opening the app again starts a new process.
 
 **NativeActivity mode** (override): For graphical apps (e.g. ImGui). Uses `android_native_app_glue` and `android_main()` entry point. The module provides a custom `AndroidManifest.xml` and `MainActivity.kt`.
 
