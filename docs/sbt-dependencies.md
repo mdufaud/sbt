@@ -80,6 +80,7 @@ By default, SBT dependencies share your project's `.vcpkg/` installation via the
 - vcpkg is only bootstrapped once (re-bootstrapped automatically when the clone pins a newer tool release)
 - packages common to both projects are compiled once
 - each project still has its own `build/` and `extlib/` directories
+- a dependency's `extlib/` receives your project's `extlib/` (its transitive dependencies) minus the links to its own build outputs: it always compiles against its current headers, never the ones it installed into your project last time
 
 If a dependency uses custom vcpkg overlay-ports (patches), it may need its own vcpkg:
 

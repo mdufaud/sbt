@@ -49,6 +49,9 @@ _FORWARDED_ARGS = ("platform", "compiler", "machine", "libc", "cpu", "static", "
 # Files a path dep copied last time, so files removed from the source leave the copy too
 _PATH_MANIFEST = ".sbt-path-files"
 
+# build outputs a dep links into its consumer's extlib
+_ARTIFACT_DIRS = ("lib", "include", "bin", "etc", "share")
+
 
 def _ref_is_branch(dest, ref):
     """True if ref names a remote branch (origin/<ref>), False for tags/SHAs (immutable)."""
@@ -422,6 +425,7 @@ def _build_dep(name, dep_path, dep_config, consumer_vcpkg_path, consumer_extlib_
     dep_extlib_path = os.path.join(dep_build_path, "extlib")
     if os.path.isdir(consumer_extlib_path):
         _copy_tree(consumer_extlib_path, dep_extlib_path)
+    _drop_own_artifacts(dep_extlib_path, dep_build_path)
 
     # Phase 1: fetch vcpkg dependencies
     logger.info(f"fetching dependencies for: {name}")
@@ -475,6 +479,20 @@ def _copy_tree(src, dst):
             shutil.copy2(s, d, follow_symlinks=False)
 
 
+def _drop_own_artifacts(dep_extlib_path, dep_build_path):
+    """Remove the dep's links to its own build outputs. _install_artifacts links them into
+    the consumer's extlib, the copy above brings them back, and extlib/include comes first
+    in CPPPATH: the dep would compile against the headers it staged last time."""
+    if not os.path.isdir(dep_extlib_path):
+        return
+    roots = tuple(os.path.join(os.path.realpath(os.path.join(dep_build_path, d)), "") for d in _ARTIFACT_DIRS)
+    for root, dirs, files in os.walk(dep_extlib_path):
+        for entry in dirs + files:
+            path = os.path.join(root, entry)
+            if os.path.islink(path) and os.path.realpath(path).startswith(roots):
+                os.remove(path)
+
+
 def _install_artifacts(name, dep_build_path, consumer_extlib_path):
     """Link built artifacts from dep's build output into consumer's extlib/."""
     if not os.path.isdir(dep_build_path):
@@ -489,7 +507,7 @@ def _install_artifacts(name, dep_build_path, consumer_extlib_path):
         utils.link_tree(vcpkg_target, consumer_extlib_path)
 
     # Link dep's own built libs and headers
-    for subdir in ("lib", "include", "bin", "etc", "share"):
+    for subdir in _ARTIFACT_DIRS:
         src = os.path.join(dep_build_path, subdir)
         if os.path.isdir(src):
             dst = os.path.join(consumer_extlib_path, subdir)
