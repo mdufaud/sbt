@@ -35,6 +35,9 @@ def link_tree(src, dst):
         s = os.path.realpath(entry.path)
         d = os.path.join(dst, entry.name)
         if entry.is_dir(follow_symlinks=False):
+            # a dir link left by an earlier run would receive the links inside its target
+            if os.path.islink(d):
+                os.unlink(d)
             link_tree(entry.path, d)
         else:
             if os.path.islink(d) or os.path.exists(d):
