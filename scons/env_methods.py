@@ -57,6 +57,10 @@ from sbt.scons import cpp_modules as scons_cpp_modules
 from sbt.scons import env_factory
 from sbt.scons import pch as scons_pch
 
+# export/<module>/<TEST_INCLUDE_DIR>: exported test headers, linked into consumers' extlib
+TEST_INCLUDE_DIR = "test-include"
+TEST_HEADER_EXTENSIONS = (".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".tpp")
+
 
 ###############################################################################
 # Private helpers
@@ -467,6 +471,13 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
             exported_test_cpppaths.append(
                 os_path.join(builder.build_modules_path, dep_modname, include_path)
             )
+        dep_conf = ctx.build_modules.get(dep_modname, {})
+        if dep_conf.get("external"):
+            project = dep_modname.partition(":")[0]
+            for exported in dep_conf.get("_exported_test_modules", []):
+                path = os_path.join(builder.build_extlib_path, "export", project, exported, TEST_INCLUDE_DIR)
+                if os_path.isdir(path):
+                    exported_test_cpppaths.append(path)
     scons_utils.prepend_unique_paths(test_env, "CPPPATH", exported_test_cpppaths)
 
     # benches take bench_* conf and the module pch only: they build without test=1
@@ -663,6 +674,7 @@ def _export_test(self, includes, resources, ctx):
         for path in normalized:
             if path not in store:
                 store.append(path)
+                _stage_test_headers(self, module_name, path, ctx)
     if resources and builder.build_tests:
         for path in resources:
             path = scons_utils.normalize_module_relative_path(module_name, path)
@@ -670,6 +682,24 @@ def _export_test(self, includes, resources, ctx):
                 os_path.join(builder.build_export_path, module_name, path), builder.build_path
             )
             scons_utils.install_module_res_into_build(self, module_name, path, dst)
+
+
+def _stage_test_headers(env, module_name, include, ctx):
+    """Install the headers of an exported test dir under export/<module>/test-include, the
+    root sbt consumers' tests include from. Each dir keeps its layout under that one root."""
+    src_root = os_path.join(builder.build_modules_path, module_name, include)
+    dest_root = os_path.join(builder.build_export_path, module_name, TEST_INCLUDE_DIR)
+    staged = ctx.state.exported_test_headers.setdefault(module_name, {})
+    for root, _dirs, files in os.walk(src_root):
+        for fname in sorted(files):
+            if not fname.endswith(TEST_HEADER_EXTENSIONS):
+                continue
+            rel = os_path.relpath(os_path.join(root, fname), src_root)
+            if rel in staged:
+                raise RuntimeError("module '{}' exports test header '{}' from both '{}' and '{}'".format(
+                    module_name, rel, staged[rel], include))
+            staged[rel] = include
+            env.InstallAs(os_path.join(dest_root, rel), os_path.join(root, fname))
 
 
 def _copy_into_build(self, src, dst, ctx):

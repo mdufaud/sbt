@@ -245,7 +245,7 @@ Modes are project-defined (`app.modes`) and always `mode-` prefixed. SBT generat
 | `env.build_demo(source, name=, libs=[], android_dir=None)` | Build demo (only if `demo=1`) |
 | `env.build_demos(sources)` | Build multiple demos (one per source file) |
 | `env.build_cpp_modules(sources, module_name=, imports=[])` | Build C++20 module interfaces and register them for later imports |
-| `env.export_test(includes=[], resources=[])` | Register include paths for dependent test builds; when `test=1`, copy resources into `EXPORT_PATH/<module>/`. |
+| `env.export_test(includes=[], resources=[])` | Register include paths for dependent test builds and stage their headers into `EXPORT_PATH/<module>/test-include/` for sbt consumers (one header name per module); when `test=1`, copy resources into `EXPORT_PATH/<module>/`. |
 
 When a target imports named modules, pass them explicitly with `cpp_modules=[...]`:
 

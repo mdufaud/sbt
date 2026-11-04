@@ -51,6 +51,8 @@ _PATH_MANIFEST = ".sbt-path-files"
 
 # build outputs a dep links into its consumer's extlib
 _ARTIFACT_DIRS = ("lib", "include", "bin", "etc", "share")
+# exported test headers, linked under the consumer's extlib/export/<dep name>/
+_EXPORT_DIR = "export"
 
 
 def _ref_is_branch(dest, ref):
@@ -426,6 +428,9 @@ def _build_dep(name, dep_path, dep_config, consumer_vcpkg_path, consumer_extlib_
     if os.path.isdir(consumer_extlib_path):
         _copy_tree(consumer_extlib_path, dep_extlib_path)
     _drop_own_artifacts(dep_extlib_path, dep_build_path)
+    _prune_dangling_links(dep_extlib_path)
+    # scons never deletes an install whose source is gone: restage exports from scratch
+    shutil.rmtree(os.path.join(dep_build_path, _EXPORT_DIR), ignore_errors=True)
 
     # Phase 1: fetch vcpkg dependencies
     logger.info(f"fetching dependencies for: {name}")
@@ -485,11 +490,21 @@ def _drop_own_artifacts(dep_extlib_path, dep_build_path):
     in CPPPATH: the dep would compile against the headers it staged last time."""
     if not os.path.isdir(dep_extlib_path):
         return
-    roots = tuple(os.path.join(os.path.realpath(os.path.join(dep_build_path, d)), "") for d in _ARTIFACT_DIRS)
+    roots = tuple(os.path.join(os.path.realpath(os.path.join(dep_build_path, d)), "")
+                  for d in _ARTIFACT_DIRS + (_EXPORT_DIR,))
     for root, dirs, files in os.walk(dep_extlib_path):
         for entry in dirs + files:
             path = os.path.join(root, entry)
-            if os.path.islink(path) and os.path.realpath(path).startswith(roots):
+            if os.path.islink(path) and os.path.join(os.path.realpath(path), "").startswith(roots):
+                os.remove(path)
+
+
+def _prune_dangling_links(root):
+    """Remove the links whose target is gone: headers or libs a dep no longer builds."""
+    for dirpath, dirs, files in os.walk(root):
+        for entry in dirs + files:
+            path = os.path.join(dirpath, entry)
+            if os.path.islink(path) and not os.path.exists(path):
                 os.remove(path)
 
 
@@ -514,10 +529,16 @@ def _install_artifacts(name, dep_build_path, consumer_extlib_path):
             logger.info(f"installing {name}/{subdir}/ -> {dst}")
             utils.link_tree(src, dst)
 
-    # Also link dep's extlib (transitive vcpkg deps)
+    export = os.path.join(dep_build_path, _EXPORT_DIR)
+    if os.path.isdir(export):
+        dst = os.path.join(consumer_extlib_path, _EXPORT_DIR, name)
+        logger.info(f"installing {name}/{_EXPORT_DIR}/ -> {dst}")
+        utils.link_tree(export, dst)
+
+    # Also link dep's extlib (transitive vcpkg deps and the exports of its own sbt deps)
     dep_extlib = os.path.join(dep_build_path, "extlib")
     if os.path.isdir(dep_extlib):
-        for subdir in ("lib", "include", "bin", "etc", "share"):
+        for subdir in _ARTIFACT_DIRS + (_EXPORT_DIR,):
             src = os.path.join(dep_extlib, subdir)
             if os.path.isdir(src):
                 dst = os.path.join(consumer_extlib_path, subdir)
@@ -560,6 +581,9 @@ def fetch():
         _install_artifacts(dep_name, dep_build_path, consumer_extlib_path)
 
         logger.info(f"dependency '{dep_name}' installed successfully")
+
+    # links to outputs a dep stopped producing
+    _prune_dangling_links(consumer_extlib_path)
 
     logger.info(f"all SBT dependencies resolved and installed")
 

@@ -364,6 +364,8 @@ def resolve_external_modules(app, deps_dir, modules_options, extlib_lib_dir=None
                 "_resolved_export_defines": mconf.get("_resolved_export_defines", [])[:],
                 "_resolved_export_flags": mconf.get("_resolved_export_flags", [])[:],
                 "_resolved_export_link": mconf.get("_resolved_export_link", [])[:],
+                # their exported test headers reach the consumer's tests
+                "_exported_test_modules": [mod] + [d for d in mconf.get("depends", []) if not is_external_depend(d)],
             }
 
 def build_modules_conf(app, specific_modules=None, conditionals=None):

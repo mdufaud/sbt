@@ -103,8 +103,16 @@ After `make dep`, the dependency's build artifacts appear in your project's
 extlib/
 ├── include/     ← dependency's public headers
 ├── lib/         ← dependency's compiled libraries (.a / .so)
-└── bin/         ← dependency's executables (if any)
+├── bin/         ← dependency's executables (if any)
+└── export/<dep>/<module>/test-include/   ← test headers the dependency exports
 ```
+
+A dependency module calling `env.export_test(includes=[...])` stages the headers of those dirs
+under `export/<module>/test-include/`. Your tests of a module depending on `dep:module` get that
+root, and the ones of the modules it depends on, in their `CPPPATH`: `#include <helper.hpp>` works
+like it does inside the dependency.
+
+Links to outputs a dependency stopped producing are removed at the end of `make dep`.
 
 Both the dependency's own libraries **and** its transitive vcpkg packages are installed here.
 Your modules can then link against them via the standard `libs` key:
