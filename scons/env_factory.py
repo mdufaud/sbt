@@ -198,9 +198,9 @@ def create_module_env(conf, ctx,
     env["APP_MODULE_DIR"] = os_path.join(builder.build_modules_path, modname)
 
     # Apply pkg-config and binary-config
-    package_configs = conf.get("pkg-configs", [])
+    package_configs = sbt_conf.collect_values(conf, "pkg-configs", modules_options, base=True)
     scons_utils.load_env_packages_config(env, *package_configs)
-    parse_configs = conf.get("parse-configs", [])
+    parse_configs = sbt_conf.collect_values(conf, "parse-configs", modules_options, base=True)
     scons_utils.parse_config_command(env, *parse_configs)
 
     # Deduplicate LIBS preserving the last occurrence of each entry so that
