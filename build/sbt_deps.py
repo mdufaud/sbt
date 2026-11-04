@@ -18,7 +18,10 @@ Syntax in app.py:
                 "m": "util,core",
             },
             # "vcpkg": "own",  # use dep's own .vcpkg instead of consumer's
-        }
+        },
+        "localproject": {
+            "path": "~/workspace/localproject",  # working tree copied instead of cloned
+        },
     }
 """
 
@@ -42,6 +45,9 @@ _ABI_ARGS = frozenset({"platform", "compiler", "machine", "libc"})
 
 # Args forwarded from consumer build config to dep builds
 _FORWARDED_ARGS = ("platform", "compiler", "machine", "libc", "cpu", "static", "mode")
+
+# Files a path dep copied last time, so files removed from the source leave the copy too
+_PATH_MANIFEST = ".sbt-path-files"
 
 
 def _ref_is_branch(dest, ref):
@@ -143,7 +149,7 @@ def _clone_dep(name, config, deps_dir, force):
     git_url = config.get("git")
     ref = config.get("ref", "main")
     if not git_url:
-        raise RuntimeError(f"sbt_dependencies['{name}']: missing 'git' URL")
+        raise RuntimeError(f"sbt_dependencies['{name}']: missing 'git' URL or 'path'")
 
     dest = os.path.join(deps_dir, name)
 
@@ -181,6 +187,85 @@ def _clone_dep(name, config, deps_dir, force):
     return dest
 
 
+def _git_listed_files(root):
+    """Files git sees in a working tree: tracked plus untracked non-ignored, submodules included."""
+    out = subprocess.run(
+        ["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        check=True, capture_output=True,
+    ).stdout.decode()
+    files = []
+    for rel in out.split("\0"):
+        if not rel:
+            continue
+        full = os.path.join(root, rel)
+        if os.path.isdir(full) and not os.path.islink(full):
+            files.extend(os.path.join(rel, sub) for sub in _git_listed_files(full))
+        elif os.path.lexists(full):
+            files.append(rel)
+    return files
+
+
+def _copy_path_dep(name, config, deps_dir, force):
+    """Mirror a local working tree into deps_dir/name/, keeping the copy's own build outputs."""
+    if config.get("git"):
+        raise RuntimeError(f"sbt_dependencies['{name}']: 'git' and 'path' are exclusive")
+    src = os.path.join(builder.build_root_path, os.path.expanduser(config["path"]))
+    src = os.path.abspath(src)
+    if not os.path.isfile(os.path.join(src, "app.py")):
+        raise RuntimeError(f"sbt_dependencies['{name}']: no app.py at path: {src}")
+    try:
+        files = _git_listed_files(src)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise RuntimeError(f"sbt_dependencies['{name}']: path is not a git working tree: {src}") from e
+
+    dest = os.path.join(deps_dir, name)
+    if force and os.path.isdir(dest):
+        logger.info(f"force re-copying dependency: {name}")
+        shutil.rmtree(dest)
+    os.makedirs(dest, exist_ok=True)
+
+    manifest = os.path.join(dest, _PATH_MANIFEST)
+    previous = set()
+    if os.path.isfile(manifest):
+        with open(manifest) as f:
+            previous = set(f.read().split("\0"))
+    for rel in previous - set(files):
+        stale = os.path.join(dest, rel)
+        if os.path.lexists(stale) and not os.path.isdir(stale):
+            os.remove(stale)
+
+    updated = 0
+    for rel in files:
+        src_file = os.path.join(src, rel)
+        dest_file = os.path.join(dest, rel)
+        src_stat = os.lstat(src_file)
+        if os.path.lexists(dest_file):
+            dest_stat = os.lstat(dest_file)
+            if (dest_stat.st_size, dest_stat.st_mtime_ns) == (src_stat.st_size, src_stat.st_mtime_ns):
+                continue
+            if os.path.isdir(dest_file) and not os.path.islink(dest_file):
+                shutil.rmtree(dest_file)
+            else:
+                os.remove(dest_file)
+        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+        shutil.copy2(src_file, dest_file, follow_symlinks=False)
+        updated += 1
+    with open(manifest, "w") as f:
+        f.write("\0".join(files))
+
+    logger.info(f"dependency copied from path: {name} ({src}, {updated} file(s) updated)")
+    # no git commands here: the copy has no .git and would run them on the consumer repo
+    _ensure_sbt_module(dest)
+    return dest
+
+
+def _fetch_dep(name, config, deps_dir, force):
+    """Materialize a dependency into deps_dir/name/: copy of a local path, or git clone."""
+    if config.get("path"):
+        return _copy_path_dep(name, config, deps_dir, force)
+    return _clone_dep(name, config, deps_dir, force)
+
+
 def _resolve_all_deps(deps_dict, deps_dir, force, resolved=None, seen_urls=None):
     """
     Recursively discover all SBT dependencies.
@@ -195,10 +280,11 @@ def _resolve_all_deps(deps_dict, deps_dir, force, resolved=None, seen_urls=None)
         if name in resolved:
             # Conflict detection: same name, different URL or ref
             existing = resolved[name]
-            if existing["config"].get("git") != config.get("git"):
+            existing_source = existing["config"].get("git") or existing["config"].get("path")
+            source = config.get("git") or config.get("path")
+            if existing_source != source:
                 raise RuntimeError(
-                    f"SBT dependency conflict for '{name}': "
-                    f"'{existing['config'].get('git')}' vs '{config.get('git')}'"
+                    f"SBT dependency conflict for '{name}': '{existing_source}' vs '{source}'"
                 )
             if existing["config"].get("ref") != config.get("ref"):
                 logger.warning(
@@ -207,8 +293,8 @@ def _resolve_all_deps(deps_dict, deps_dir, force, resolved=None, seen_urls=None)
                 )
             continue
 
-        dep_path = _clone_dep(name, config, deps_dir, force)
-        resolved[name] = {"config": config, "path": dep_path, "transitive_deps": []}
+        dep_path = _fetch_dep(name, config, deps_dir, force)
+        resolved[name] ={"config": config, "path": dep_path, "transitive_deps": []}
 
         # Check for transitive SBT dependencies (best-effort: a dep whose
         # app.py cannot load still gets built — its own make will fail loudly)

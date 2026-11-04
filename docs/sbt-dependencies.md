@@ -31,8 +31,9 @@ make build      # build your project, linking against the installed deps
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `git` | yes | Git URL to clone from |
-| `ref` | no | Branch, tag, or commit (default: `main`) |
+| `git` | yes, unless `path` | Git URL to clone from |
+| `path` | yes, unless `git` | Local git working tree copied instead of cloned (see below) |
+| `ref` | no | Branch, tag, or commit (default: `main`); ignored with `path` |
 | `args` | no | Build arguments forwarded to the dependency's `make build` |
 | `vcpkg` | no | Set to `"own"` to give the dep its own `.vcpkg/` (see below) |
 | `recursive` | no | Pass `--recursive` to `git clone` (default: `false`) |
@@ -172,7 +173,7 @@ your-project/
     └── libB/         ← transitive dep of libA (also used here, cloned once)
 ```
 
-Conflict detection: if two deps require the same name with different git URLs, the build
+Conflict detection: if two deps require the same name with different git URLs or paths, the build
 aborts with an error message.
 
 ## Clone location and caching
@@ -185,6 +186,31 @@ make dep fgit=1         # force re-clone of all SBT deps
 ```
 
 `.sbt-deps/` is excluded from version control (`.gitignore`).
+
+## Local working tree (`path`)
+
+To build against a dependency you are editing, without committing it, give its checkout
+instead of a git URL:
+
+```python
+sbt_dependencies = {
+    "project": {
+        "path": "~/workspace/project",
+        "args": {"m": "module1"},
+    }
+}
+```
+
+- `path` and `git` are exclusive. A relative `path` is resolved from your project root, `~` is expanded.
+- The path must be a git working tree. Every `make dep` copies the files git sees into
+  `.sbt-deps/<name>/`: tracked files with their uncommitted changes, untracked files not
+  ignored by `.gitignore`, and checked-out submodules (its `site_scons/sbt` included).
+  Ignored files (`build/`, `.vcpkg/`, ...) are never copied.
+- Only files whose size or modification time changed are copied, and the copy's own `build/`
+  is kept, so the dependency rebuilds incrementally. A file deleted from the working tree is
+  deleted from the copy at the next `make dep`.
+- The copy is not a git repository: no submodule update, no LFS pull. `fgit=1` wipes the copy
+  and copies again.
 
 ## Full example
 
