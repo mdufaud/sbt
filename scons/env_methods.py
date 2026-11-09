@@ -330,15 +330,43 @@ def _is_dev(env):
     return build_modules_util.is_dev_module(env['APP_MODULE_CONF'])
 
 
-def _purge_dev_copies(directory, patterns, ctx):
-    """A module built for real never keeps a dev copy that could shadow it."""
+def _dev_artifact_files(artifacts):
+    files = list(artifacts.get("files", []))
+    for lib_path in artifacts.get("libs", []):
+        lib_dir, name = os_path.split(lib_path)
+        for stem in ("lib" + name, name):
+            files += glob(os_path.join(lib_dir, glob_escape(stem)) + ".*")
+    return [path for path in files if os_path.lexists(path)]
+
+
+def sync_dev_modules(ctx):
+    """A module built for real loses every dev artifact a previous build left
+    for it; the dev modules of this build are recorded for the next one."""
     if ctx.is_dry_run:
         return
-    for pattern in patterns:
-        for path in glob(os_path.join(directory, glob_escape(pattern[0]) + pattern[1])):
-            if os_path.isfile(path):
+    manifest_path = os_path.join(builder.build_dev_path, "modules.json")
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        manifest = {}
+    for modname, conf in ctx.build_modules.items():
+        if build_modules_util.is_dev_module(conf):
+            manifest[modname] = {
+                "libs": [info["path"] for info in ctx.state.generated_libs.get(modname, [])],
+                "files": [info["path"] for info in ctx.state.generated_bins.get(modname, [])]
+                         + ctx.state.dev_resources.get(modname, []),
+            }
+        elif modname in manifest:
+            for path in _dev_artifact_files(manifest.pop(modname)):
                 logger.info(f"removing dev copy of a built module: {path}")
                 os.remove(path)
+    if manifest:
+        os.makedirs(builder.build_dev_path, exist_ok=True)
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
+    elif os_path.exists(manifest_path):
+        os.remove(manifest_path)
 
 
 def _add_program_depends(env, program_closure, static_libs, ctx):
@@ -413,8 +441,6 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
 
     dev = _is_dev(self)
     lib_dir = builder.build_dev_lib_path if dev else builder.build_lib_path
-    if not dev:
-        _purge_dev_copies(builder.build_dev_lib_path, [("lib" + name, ".*"), (name, ".*")], ctx)
     lib_path = os_path.join(lib_dir, name)
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
 
@@ -456,8 +482,6 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     bin_dir = builder.build_dev_bin_path if dev else builder.build_bin_path
 
     if ctx.build_platform == "android":
-        if not dev:
-            _purge_dev_copies(builder.build_dev_bin_path, [(name, ".apk")], ctx)
         apk = _android_build_apk(self, src, name, bin_dir, libs, ctx, android_dir, **kwargs)
         ctx.state.add_generated(
             "bin", ctx.state.generated_bins, module_name,
@@ -474,8 +498,6 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     _apply_bin_linkflags(self, bin_env, bin_dir)
 
     name += ctx.bin_ext
-    if not dev:
-        _purge_dev_copies(builder.build_dev_bin_path, [(name, "")], ctx)
     bin_path = os_path.join(bin_dir, name)
     if cpp_mods or bin_env.get("PCH"):
         objects = scons_cpp_modules.build_split_objects(bin_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)

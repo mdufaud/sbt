@@ -101,7 +101,7 @@ outside the build is a **dev module**. `make m=base test=1` builds `io` as a dev
   skip it, so an adaptive module generates the same code with or without `test=1` (add it with
   `fmod=io` to bind it for real);
 - its own tests and demos are not built;
-- when a later build builds it for real, its `<build>/dev/` lib and bins are removed.
+- when a later build builds it for real, everything it left in `<build>/dev/` (libs, bins, resources, tracked in `<build>/dev/modules.json`) is removed.
 
 Programs linking a dev module search `<build>/dev/lib` first (link and rpath; WINEPATH and qemu
 `LD_LIBRARY_PATH` under a runner), then the usual dirs. They get the headers, exported

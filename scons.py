@@ -437,7 +437,9 @@ for conf in modules_build_order:
     # install module/[etc|include|share] to build/[etc|include|share] (build-time nodes)
     res_root = os_path.relpath(builder.build_dev_path, builder.build_path) if modules.is_dev_module(conf) else ""
     for resource_dir in ("etc", "include", "share"):
-        scons_utils.install_module_res_into_build(env, modname, resource_dir, os_path.join(res_root, resource_dir), must_exist=False)
+        res_nodes = scons_utils.install_module_res_into_build(env, modname, resource_dir, os_path.join(res_root, resource_dir), must_exist=False)
+        if res_root:
+            build_state.dev_resources.setdefault(modname, []).extend(node.abspath for node in res_nodes)
         if builder.build_demo and not res_root:
             scons_utils.install_module_res_into_build(env, modname, f"demo/{resource_dir}", resource_dir, must_exist=False)
     # read module's scons script file
@@ -458,6 +460,7 @@ for conf in modules_build_order:
         print("")
 
 env_methods.finalize_program_depends(ctx)
+env_methods.sync_dev_modules(ctx)
 
 ###############################################################################
 # Combined library
