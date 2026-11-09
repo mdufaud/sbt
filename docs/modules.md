@@ -67,6 +67,49 @@ SBT auto-fills missing keys (`depends`, `libs`, `link`, `flags`) as empty lists.
 | `bin-link` | `list[str]` | Linker flags for binaries/tests/demos only (`BIN_LINKFLAGS`) |
 | `extlibs` | `list[str]` | External library names (vcpkg), see [dependencies.md](dependencies.md) |
 | `pch` | `bool` | `False` skips the precompiled header of a header module listed in `depends`; selector forms (`android-pch`) override it, last match wins. See [pch.md](pch.md) |
+| `test-depends` | `list[str]` | Modules linked into this module's tests only, see [Program-only depends](#program-only-depends) |
+| `demo-depends` | `list[str]` | Same, for demos |
+| `bench-depends` | `list[str]` | Same, for benches |
+| `fuzz-depends` | `list[str]` | Same, for fuzzers |
+
+### Program-only depends
+
+`<kind>-depends` links modules into the `build_test` / `build_demo` / `build_bench` /
+`build_fuzz` programs of a module, never into its library. A program-only depend may itself
+depend on the module (cycle), e.g. testing `base` through a higher-level module:
+
+```python
+modules = {
+    "base": {"test-depends": ["io"], "demo-depends": ["io"]},
+    "io": {"depends": ["base"]},
+}
+```
+
+They count only for the modules whose programs are built (the `m=`/`fmod=` modules, every module
+without `m=`) and only with the matching flag (`test=1`, `demo=1`, `bench=1`, `fuzz=1`): `make m=base`
+does not build `io`. `make dep` needs the same flag to install their extlibs.
+
+**Demos ship** (`make install`, `make dist`): `demo-depends` modules join the build like `depends`,
+with `demo=1` only.
+
+**Tests, benches and fuzzers never ship**: a `test-depends` / `bench-depends` / `fuzz-depends` module
+outside the build is a **dev module**. `make m=base test=1` builds `io` as a dev module:
+
+- its lib, bins and `etc/include/share` resources go to `<build>/dev/`, never to `<build>/lib`,
+  `bin`, `include`: the build tree stays installable and distributable as is;
+- the build does not see it: `env.modules_to_build()` and `conditional-depends` of build modules
+  skip it, so an adaptive module generates the same code with or without `test=1` (add it with
+  `fmod=io` to bind it for real);
+- its own tests and demos are not built;
+- when a later build builds it for real, its `<build>/dev/` lib and bins are removed.
+
+Programs linking a dev module search `<build>/dev/lib` first (link and rpath; WINEPATH and qemu
+`LD_LIBRARY_PATH` under a runner), then the usual dirs. They get the headers, exported
+defines/flags/link and libs of their program-only depends, `io` before `base` (static order), added
+once every module's `scons.py` ran; `project:module` entries work as in `depends`. Exported test
+headers (`env.export_test`) of a program-only depend reach the tests only when that depend is built
+first, never in a cycle. A dev module's `scons.py` writing to `builder.build_path` by hand is not
+redirected.
 
 ### Discovery keys
 

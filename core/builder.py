@@ -491,6 +491,8 @@ build_tests = has_test()
 build_demo = has_demo()
 build_benches = has_bench()
 build_fuzz = has_fuzz()
+build_programs = tuple(kind for kind, on in (("test", build_tests), ("demo", build_demo),
+                                               ("bench", build_benches), ("fuzz", build_fuzz)) if on)
 build_verbose = has_verbose()
 logger.set_verbose(build_verbose)
 
@@ -539,6 +541,10 @@ build_extlib_res_path = join(build_extlib_path, "res")
 
 build_bin_path = join(build_path, "bin")
 build_lib_path = join(build_path, "lib")
+# modules pulled in only by test/bench/fuzz-depends: never installed nor distributed
+build_dev_path = join(build_path, "dev")
+build_dev_lib_path = join(build_dev_path, "lib")
+build_dev_bin_path = join(build_dev_path, "bin")
 build_hdr_path = join(build_path, "include")
 build_etc_path = join(build_path, "etc")
 build_share_path = join(build_path, "share")
@@ -644,7 +650,7 @@ def get_test_runner_env():
         # static mingw has no DLLs -> no WINEPATH needed
         if not build_static_libs:
             # shared build also needs the mingw runtime DLLs (libstdc++/libgcc/libwinpthread)
-            wine_paths = [build_lib_path, build_extlib_lib_path, build_extlib_bin_path]
+            wine_paths = [build_dev_lib_path, build_lib_path, build_extlib_lib_path, build_extlib_bin_path]
             wine_paths.extend(_mingw_runtime_dll_dirs())
             env.append("WINEPATH=" + ";".join(wine_paths))
     else:
@@ -656,7 +662,7 @@ def get_test_runner_env():
         if sysroot:
             env.append("QEMU_LD_PREFIX=" + abspath(sysroot))
         if not build_static_libs:
-            env.append("QEMU_SET_ENV=LD_LIBRARY_PATH=" + ":".join([build_lib_path, build_extlib_lib_path]))
+            env.append("QEMU_SET_ENV=LD_LIBRARY_PATH=" + ":".join([build_dev_lib_path, build_lib_path, build_extlib_lib_path]))
     return env
 
 def generate_runner():
@@ -881,6 +887,8 @@ def copy_dll_to_build(generated_lld_binaries):
         build_need_dll_path_lst.append(join(build_test_path, "bin"))
     if build_benches:
         build_need_dll_path_lst.append(join(build_bench_path, "bin"))
+    build_need_dll_path_lst.append(build_dev_bin_path)
+    shipped_dll_path_lst = (build_bin_path, build_demo_path)
 
     do_copy = False
     for path in build_need_dll_path_lst:
@@ -893,6 +901,7 @@ def copy_dll_to_build(generated_lld_binaries):
 
     # dirs to resolve imported DLL names against: own libs, extlib DLLs, mingw runtime
     dll_search_path_lst = [
+        build_dev_lib_path,
         build_lib_path,
         build_extlib_bin_path,
         build_extlib_lib_path,
@@ -927,16 +936,19 @@ def copy_dll_to_build(generated_lld_binaries):
             dll_found[key] = resolved
             queue.extend(_pe_dll_imports(resolved))
 
-    dll_found = dll_found.values()
-    expected_dll_names = {os.path.basename(dll).lower() for dll in dll_found}
+    all_dll_found = list(dll_found.values())
 
     if has_verbose():
-        for dll in dll_found:
+        for dll in all_dll_found:
             logger.debug(f"Found expected DLL: {dll}")
 
     for build_dll_path in build_need_dll_path_lst:
         if not os.path.isdir(build_dll_path):
             continue
+        dll_found = all_dll_found
+        if build_dll_path in shipped_dll_path_lst:
+            dll_found = [dll for dll in all_dll_found if os.path.dirname(dll) != build_dev_lib_path]
+        expected_dll_names = {os.path.basename(dll).lower() for dll in dll_found}
         if has_verbose():
             logger.debug(f"Copying DLLs found into: {build_dll_path}")
         # wine resolves imports from the executable's directory before WINEPATH,

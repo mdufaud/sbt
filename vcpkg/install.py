@@ -106,7 +106,7 @@ build_modules = {}
 if modules_to_build != "NONE":
     # Get modules configuration for this build
     try:
-        build_modules = modules.build_modules_conf(app, specific_modules=modules_lst)
+        build_modules = modules.build_modules_conf(app, specific_modules=modules_lst, programs=builder.build_programs)
     except RuntimeError as e:
         logger.error(str(e))
         exit(1)

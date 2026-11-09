@@ -38,6 +38,7 @@ _NON_FLAG_CONF_KEYS = frozenset([
     "allow-platforms", "exclude-platforms",
     "allow-link-shared", "allow-link-static",
     "pch",
+    "test-depends", "demo-depends", "bench-depends", "fuzz-depends",
     "external", # self injected whitelist
 ])
 

@@ -41,6 +41,7 @@ Public API (methods available in module scons.py scripts):
 """
 
 from glob import glob
+from glob import escape as glob_escape
 import time
 import json
 import os
@@ -50,7 +51,9 @@ from SCons.Script import Action, NoCache
 
 from sbt.core import builder
 from sbt.core import logger
+from sbt.core.utils import dedupe_keep_order
 from sbt.build import cpp_module_parse as build_cpp_modules
+from sbt.build import modules as build_modules_util
 from sbt.scons import utils as scons_utils
 from sbt.scons import android as scons_android
 from sbt.scons import cpp_modules as scons_cpp_modules
@@ -98,7 +101,11 @@ def _origin_rpath_flags(env, artifact_dir):
         return []
     flags = []
     seen = set()
-    for lib_dir in (builder.build_lib_path, builder.build_extlib_lib_path):
+    lib_dirs = (builder.build_lib_path, builder.build_extlib_lib_path)
+    if env.get("SBT_LINKS_DEV"):
+        # first: a stale build/lib copy of a module now built as dev must not win
+        lib_dirs = (builder.build_dev_lib_path,) + lib_dirs
+    for lib_dir in lib_dirs:
         rel = os_path.relpath(lib_dir, artifact_dir)
         origin = "$ORIGIN" if rel == os_path.curdir else os_path.join("$ORIGIN", rel)
         if origin not in seen:
@@ -109,7 +116,7 @@ def _origin_rpath_flags(env, artifact_dir):
     return flags
 
 
-def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, **kwargs):
+def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, program_closure=(), **kwargs):
     """Orchestrate building an Android APK from the given source(s).
 
     Stages a Gradle project from templates, compiles a SharedLibrary, copies
@@ -119,6 +126,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
 
     apk_env = env.Clone()
     apk_env.Prepend(LIBS=libs)
+    _add_program_depends(apk_env, program_closure, False, ctx)
     scons_utils.add_env_app_conf(ctx.app, apk_env, "demo")
     for app_conf in ctx.default_app_conf_to_get:
         scons_utils.add_env_app_conf(ctx.app, apk_env, "demo", app_conf)
@@ -318,6 +326,51 @@ def _wrap_libs_static(env, static_libs):
         env["LINKCOM"] = str(env["LINKCOM"]) + " ${_SBT_STATIC_LIBFLAGS}"
 
 
+def _is_dev(env):
+    return build_modules_util.is_dev_module(env['APP_MODULE_CONF'])
+
+
+def _purge_dev_copies(directory, patterns, ctx):
+    """A module built for real never keeps a dev copy that could shadow it."""
+    if ctx.is_dry_run:
+        return
+    for pattern in patterns:
+        for path in glob(os_path.join(directory, glob_escape(pattern[0]) + pattern[1])):
+            if os_path.isfile(path):
+                logger.info(f"removing dev copy of a built module: {path}")
+                os.remove(path)
+
+
+def _add_program_depends(env, program_closure, static_libs, ctx):
+    """Headers and exports of a program's program-only depends now; their lib
+    names only exist once every module ran, see finalize_program_depends."""
+    if not program_closure:
+        return
+    if any(build_modules_util.is_dev_module(ctx.build_modules.get(dep, {})) for dep in program_closure):
+        env_factory.link_dev_libs(env)
+    env.AppendUnique(CPPPATH=[os_path.join(builder.build_modules_path, dep, "include")
+                              for dep in program_closure if not build_modules_util.is_external_depend(dep)])
+    for dep in program_closure:
+        dep_conf = ctx.build_modules.get(dep, {})
+        env.AppendUnique(
+            CPPDEFINES=dep_conf.get("_resolved_export_defines", []),
+            CPPFLAGS=dep_conf.get("_resolved_export_flags", []),
+            LINKFLAGS=dep_conf.get("_resolved_export_link", []),
+        )
+    ctx.state.deferred_program_links.append((env, program_closure, static_libs))
+
+
+def finalize_program_depends(ctx):
+    """Prepend the program-only depends libs to their programs: SCons reads LIBS at build time."""
+    for env, program_closure, static_libs in ctx.state.deferred_program_links:
+        libs = [lib_info["name"] for dep in program_closure for lib_info in ctx.state.generated_libs.get(dep, [])]
+        for dep in program_closure:
+            libs += ctx.build_modules.get(dep, {}).get("_resolved_export_libs", [])
+        env.Prepend(LIBS=dedupe_keep_order(libs))
+        if static_libs:
+            _wrap_libs_static(env, static_libs)
+
+
 def _clone_env_with_new_libs(self, libs, static_stdlib):
     """Clone the module env for a bin/test/demo artifact: prepend LIBS + static stdlib."""
     artifact_env = self.Clone()
@@ -358,7 +411,11 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
     if name is None:
         name = self["APP_MODULE_FORMAT_NAME"]
 
-    lib_path = os_path.join(builder.build_lib_path, name)
+    dev = _is_dev(self)
+    lib_dir = builder.build_dev_lib_path if dev else builder.build_lib_path
+    if not dev:
+        _purge_dev_copies(builder.build_dev_lib_path, [("lib" + name, ".*"), (name, ".*")], ctx)
+    lib_path = os_path.join(lib_dir, name)
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
 
     if (static is not None and static is True) or builder.build_static_libs:
@@ -367,7 +424,7 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
     else:
         objects = scons_cpp_modules.build_split_objects(self, src, ctx, shared=True, cpp_modules=cpp_mods, **build_kwargs)
         lib_env = self.Clone()
-        lib_env.Append(LINKFLAGS=_origin_rpath_flags(lib_env, builder.build_lib_path))
+        lib_env.Append(LINKFLAGS=_origin_rpath_flags(lib_env, lib_dir))
         if static_libs:
             _static_link_into_shared_lib(self, lib_env, static_libs)
         # A shared Android module .so must carry the same C++ runtime as the
@@ -382,7 +439,7 @@ def _build_lib(self, src, name, static, ctx, **kwargs):
     ctx.state.add_targets(src)
     ctx.state.add_generated("lib", ctx.state.generated_libs, module_name, name, lib_path)
 
-    if builder.build_combined:
+    if builder.build_combined and not dev:
         ctx.state.lib_objects.setdefault(module_name, []).extend(
             objects if isinstance(objects, list) else [objects]
         )
@@ -395,12 +452,16 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
     module_name = self['APP_MODULE_NAME']
     if name is None:
         name = self['APP_MODULE_FORMAT_NAME']
+    dev = _is_dev(self)
+    bin_dir = builder.build_dev_bin_path if dev else builder.build_bin_path
 
     if ctx.build_platform == "android":
-        apk = _android_build_apk(self, src, name, builder.build_bin_path, libs, ctx, android_dir, **kwargs)
+        if not dev:
+            _purge_dev_copies(builder.build_dev_bin_path, [(name, ".apk")], ctx)
+        apk = _android_build_apk(self, src, name, bin_dir, libs, ctx, android_dir, **kwargs)
         ctx.state.add_generated(
             "bin", ctx.state.generated_bins, module_name,
-            f"{name}.apk", os_path.join(builder.build_bin_path, f"{name}.apk")
+            f"{name}.apk", os_path.join(bin_dir, f"{name}.apk")
         )
         return apk
 
@@ -410,10 +471,12 @@ def _build_bin(self, src, name, libs, android_dir, ctx, **kwargs):
 
     cpp_mods, build_kwargs = scons_cpp_modules.extract_imports(kwargs)
 
-    _apply_bin_linkflags(self, bin_env, builder.build_bin_path)
+    _apply_bin_linkflags(self, bin_env, bin_dir)
 
     name += ctx.bin_ext
-    bin_path = os_path.join(builder.build_bin_path, name)
+    if not dev:
+        _purge_dev_copies(builder.build_dev_bin_path, [(name, "")], ctx)
+    bin_path = os_path.join(bin_dir, name)
     if cpp_mods or bin_env.get("PCH"):
         objects = scons_cpp_modules.build_split_objects(bin_env, src, ctx, cpp_modules=cpp_mods, **build_kwargs)
         result = bin_env.Program(bin_path, objects, **build_kwargs)
@@ -451,7 +514,7 @@ def _build_fuzz(self, src, name, libs, ctx, **kwargs):
 def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, registry, **kwargs):
     static_stdlib = kwargs.pop("static_stdlib", False)
     static_libs = kwargs.pop("static_libs", False)
-    if not enabled:
+    if not enabled or _is_dev(self):
         return None
     module_name = self['APP_MODULE_NAME']
     if ctx.modules_lst and module_name not in ctx.modules_lst:
@@ -464,9 +527,10 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
     if cpp_mods and not builder.is_cpp_modules:
         return None
     conf = self['APP_MODULE_CONF']
+    program_closure = conf.get("_program_depends", {}).get(gentype, [])
 
     exported_test_cpppaths = []
-    for dep_modname in conf.get("depends", []):
+    for dep_modname in conf.get("depends", []) + program_closure:
         for include_path in ctx.state.exported_test_includes.get(dep_modname, []):
             exported_test_cpppaths.append(
                 os_path.join(builder.build_modules_path, dep_modname, include_path)
@@ -479,6 +543,7 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
                 if os_path.isdir(path):
                     exported_test_cpppaths.append(path)
     scons_utils.prepend_unique_paths(test_env, "CPPPATH", exported_test_cpppaths)
+    _add_program_depends(test_env, program_closure, static_libs, ctx)
 
     # benches take bench_* conf and the module pch only: they build without test=1
     _add_phase_app_conf(test_env, ctx, gentype)
@@ -486,7 +551,7 @@ def _build_test_program(self, src, name, libs, ctx, enabled, out_path, gentype, 
         scons_pch.use_test_header(test_env, ctx)
     scons_pch.verify(test_env)
 
-    if static_libs:
+    if static_libs and not program_closure:
         _wrap_libs_static(test_env, static_libs)
 
     _apply_bin_linkflags(self, test_env, os_path.join(out_path, "bin"))
@@ -524,14 +589,16 @@ def _install_fuzz_inputs(env, module_name, src, program):
 def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
     static_stdlib = kwargs.pop("static_stdlib", False)
     static_libs = kwargs.pop("static_libs", False)
-    if not builder.build_demo:
+    if not builder.build_demo or _is_dev(self):
         return None
     module_name = self['APP_MODULE_NAME']
     if ctx.modules_lst and module_name not in ctx.modules_lst:
         return None
+    program_closure = self['APP_MODULE_CONF'].get("_program_depends", {}).get("demo", [])
 
     if ctx.build_platform == "android":
-        demo = _android_build_apk(self, src, name, builder.build_demo_path, libs, ctx, android_dir, **kwargs)
+        demo = _android_build_apk(self, src, name, builder.build_demo_path, libs, ctx, android_dir,
+                                  program_closure=program_closure, **kwargs)
         ctx.state.add_generated(
             "demo", ctx.state.generated_demos, module_name,
             f"{name}.apk", os_path.join(builder.build_demo_path, f"{name}.apk")
@@ -545,9 +612,10 @@ def _build_demo(self, src, name, libs, android_dir, ctx, **kwargs):
     for app_conf in ctx.default_app_conf_to_get:
         scons_utils.add_env_app_conf(ctx.app, demo_env, "demo", app_conf)
 
+    _add_program_depends(demo_env, program_closure, static_libs, ctx)
     scons_pch.verify(demo_env)
 
-    if static_libs:
+    if static_libs and not program_closure:
         _wrap_libs_static(demo_env, static_libs)
 
     _apply_bin_linkflags(self, demo_env, builder.build_demo_path)

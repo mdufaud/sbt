@@ -104,7 +104,7 @@ except RuntimeError as e:
 
 # Get modules configuration for this build
 try:
-    build_modules = modules.build_modules_conf(app, specific_modules=modules_lst)
+    build_modules = modules.build_modules_conf(app, specific_modules=modules_lst, programs=builder.build_programs)
 except RuntimeError as e:
     logger.error(str(e))
     Exit(1)
@@ -199,7 +199,7 @@ base_env = Environment(
     # libraries name
     LIBS = global_libs,
     # extra key for modules to build
-    APP_MODULES_BUILD = build_modules.keys(),
+    APP_MODULES_BUILD = [name for name, conf in build_modules.items() if not modules.is_dev_module(conf)],
     COMPILATIONDB_USE_ABSPATH = True,
     # scons tools
     tools = [
@@ -435,9 +435,10 @@ for conf in modules_build_order:
             logger.debug("needed specific packages configs")
             pp.pprint(parse_configs)
     # install module/[etc|include|share] to build/[etc|include|share] (build-time nodes)
+    res_root = os_path.relpath(builder.build_dev_path, builder.build_path) if modules.is_dev_module(conf) else ""
     for resource_dir in ("etc", "include", "share"):
-        scons_utils.install_module_res_into_build(env, modname, resource_dir, resource_dir, must_exist=False)
-        if builder.build_demo:
+        scons_utils.install_module_res_into_build(env, modname, resource_dir, os_path.join(res_root, resource_dir), must_exist=False)
+        if builder.build_demo and not res_root:
             scons_utils.install_module_res_into_build(env, modname, f"demo/{resource_dir}", resource_dir, must_exist=False)
     # read module's scons script file
     module_format_name = env['APP_MODULE_FORMAT_NAME']
@@ -456,14 +457,17 @@ for conf in modules_build_order:
     if verbose and len(modules_build_order) > 1:
         print("")
 
+env_methods.finalize_program_depends(ctx)
+
 ###############################################################################
 # Combined library
 ###############################################################################
 
 if builder.build_combined and build_state.lib_objects:
+    combined_build_order = [conf for conf in modules_build_order if not modules.is_dev_module(conf)]
     # collect all pre-compiled objects from all built modules
     combined_objects = []
-    for conf in modules_build_order:
+    for conf in combined_build_order:
         combined_objects.extend(build_state.lib_objects.get(conf["modname"], []))
 
     if combined_objects:
@@ -475,7 +479,7 @@ if builder.build_combined and build_state.lib_objects:
 
         combined_external_libs = []
         seen_libs = set()
-        for conf in modules_build_order:
+        for conf in combined_build_order:
             for lib in conf.get("libs", []):
                 lib_str = str(lib)
                 if lib_str not in seen_libs and lib_str not in internal_lib_names:
@@ -484,7 +488,7 @@ if builder.build_combined and build_state.lib_objects:
 
         combined_env = base_env.Clone()
         combined_env.Replace(LIBS=combined_external_libs)
-        for conf in modules_build_order:
+        for conf in combined_build_order:
             combined_env.AppendUnique(
                 CPPPATH=[os_path.join(builder.build_modules_path, conf["modname"], "include")]
             )

@@ -72,9 +72,38 @@ def __get_module_fill_order(modules):
             raise SystemExit("maximum iterations reached to get modules build order - check your app configuration")
     return order
 
-def resolve_modules_dependencies(modules):
+PROGRAMS = ("test", "demo", "bench", "fuzz")
+# demos ship, their depends join the build; these only link into unshipped programs
+DEV_PROGRAMS = ("test", "bench", "fuzz")
+
+def program_depends_key(program):
+    return f"{program}-depends"
+
+def is_dev_module(conf):
+    return conf.get("_dev", False)
+
+def _resolve_program_depends(modules, conf, programs):
+    """Per built program kind: its program-only depends closure, deepest first,
+    minus the module itself and its lib depends (those already link). Depends
+    out of the build are skipped: only requested modules pull theirs in."""
+    modname = conf["modname"]
+    resolved = {}
+    for program in programs:
+        closure = []
+        for dep in conf.get(program_depends_key(program), []):
+            if dep not in modules and not is_external_depend(dep):
+                continue
+            closure.append(dep)
+            closure.extend(modules.get(dep, {}).get("depends", []))
+        closure = [d for d in dedupe_keep_order(closure) if d != modname and d not in conf["depends"]]
+        if closure:
+            resolved[program] = sorted(closure, key=lambda d: closure_depth(modules, d), reverse=True)
+    conf["_program_depends"] = resolved
+
+def resolve_modules_dependencies(modules, programs=()):
     """ @brief Fill all modules real dependency tree
         @param modules modules dict
+        @param programs built program kinds whose '<kind>-depends' get resolved
     """
     order = __get_module_fill_order(modules)
     for name in order:
@@ -86,11 +115,15 @@ def resolve_modules_dependencies(modules):
         # Adds conditional dependencies if they are in the current build
         conditional_depends = conf.get("conditional-depends", [])
         if conditional_depends:
+            # a shipped lib never adapts to a module only tests pulled in
             conf['depends'].extend([cond_mod for cond_mod in conditional_depends
-                                    if cond_mod in modules and cond_mod not in conf['depends']])
+                                    if cond_mod in modules and cond_mod not in conf['depends']
+                                    and (is_dev_module(conf) or not is_dev_module(modules[cond_mod]))])
         conf["declared-depends"] = conf['depends'][:]
         # Get dependency tree
         __rec_fill_module_real_depends(modules, name, conf)
+    for conf in modules.values():
+        _resolve_program_depends(modules, conf, programs)
 
 def resolve_modules_exports(modules, modules_options):
     order = __get_module_fill_order(modules)
@@ -220,6 +253,9 @@ def _prune_depends(modules, removed):
             deps = conf.get(key)
             if deps:
                 conf[key] = [dep for dep in deps if dep not in removed]
+        program_depends = conf.get("_program_depends", {})
+        for program, deps in program_depends.items():
+            program_depends[program] = [dep for dep in deps if dep not in removed]
 
 def check_platform(modules, platform, modules_options=None):
     """ @brief sanatize modules based on platform and build selectors
@@ -337,8 +373,9 @@ def resolve_external_modules(app, deps_dir, modules_options, extlib_lib_dir=None
         return
     universe = get_module_merged_with_conditionals(app)
     refs = {}
+    keys = ["depends", "conditional-depends"] + [program_depends_key(program) for program in PROGRAMS]
     for conf in universe.values():
-        for dep in conf.get("depends", []) + conf.get("conditional-depends", []):
+        for dep in [dep for key in keys for dep in conf.get(key, [])]:
             if not is_external_depend(dep):
                 continue
             project, _, mod = dep.partition(":")
@@ -368,11 +405,12 @@ def resolve_external_modules(app, deps_dir, modules_options, extlib_lib_dir=None
                 "_exported_test_modules": [mod] + [d for d in mconf.get("depends", []) if not is_external_depend(d)],
             }
 
-def build_modules_conf(app, specific_modules=None, conditionals=None):
+def build_modules_conf(app, specific_modules=None, conditionals=None, programs=()):
     """ @brief build modules from application configuration
         @param app the application configuration module
         @param specific_modules_list build specific modules instead of all
         @param conditionals list of conditional modules to be added to the build
+        @param programs built program kinds (test, demo, bench, fuzz) pulling '<kind>-depends'
         @return list
     """
     specific_modules = list(specific_modules or [])
@@ -384,7 +422,8 @@ def build_modules_conf(app, specific_modules=None, conditionals=None):
     sbt_conf.check_unknown_conf_keys(get_module_merged_with_conditionals(app), modes)
     conditionals.extend(get_conditionals_from_env(app))
     modules = {}
-    if specific_modules and specific_modules[0] != '':
+    requested = specific_modules and specific_modules[0] != ''
+    if requested:
         app_modules = app.modules
         # if a conditional is in specific module list, add conditionals to list of modules
         if hasattr(app, "conditional_modules") and has_conditional_in_modules_list(app.conditional_modules, specific_modules):
@@ -396,6 +435,32 @@ def build_modules_conf(app, specific_modules=None, conditionals=None):
     all_modules = get_module_merged_with_conditionals(app)
     for modname in conditionals:
         fill_modlist_from_modules(all_modules, [modname], modules)
+    # programs are built for the requested modules only, every module without m=
+    program_modules = [m for m in specific_modules if m in all_modules] if requested else list(modules)
+
+    def program_depends(kinds):
+        deps = []
+        for modname in program_modules:
+            for program in programs:
+                for dep in all_modules[modname].get(program_depends_key(program), []):
+                    if dep not in all_modules and not is_external_depend(dep):
+                        raise RuntimeError("No such module: {}".format(dep))
+                    if program in kinds:
+                        deps.append(dep)
+        return deps
+
+    fill_modlist_from_modules(all_modules, program_depends(("demo",)), modules)
+    for conf in modules.values():
+        conf.pop("_dev", None)
+    dev_modules = {}
+    fill_modlist_from_modules(all_modules, program_depends(DEV_PROGRAMS), dev_modules)
+    dev_modules = {name: conf for name, conf in dev_modules.items() if name not in modules}
+    if dev_modules:
+        if modules is app.modules:
+            modules = dict(modules)
+        for name, conf in dev_modules.items():
+            conf["_dev"] = True
+            modules[name] = conf
     # Get every dependencies configuration for modules
-    resolve_modules_dependencies(modules)
+    resolve_modules_dependencies(modules, programs)
     return modules

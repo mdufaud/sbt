@@ -91,6 +91,12 @@ def __add_env_app_conf_suffixed(app, env, keys, suffix_dims):
 # Module environment factory
 ###############################################################################
 
+def link_dev_libs(env):
+    """Search <build>/dev/lib first, at link time and in the rpath."""
+    env["SBT_LINKS_DEV"] = True
+    env.PrependUnique(LIBPATH=[builder.build_dev_lib_path])
+
+
 def create_module_env(conf, ctx,
                       depends=None,
                       do_inherit_depends_defines=False,
@@ -192,6 +198,8 @@ def create_module_env(conf, ctx,
     # build_lib/build_test/build_demo/build_bin when the caller passes cpp_modules=.
     # Auto-propagation would pollute every source of every dependent module.
 
+    if build_modules_util.is_dev_module(conf):
+        link_dev_libs(env)
     env["APP_MODULE_NAME"] = modname
     env["APP_MODULE_FORMAT_NAME"] = f"{ctx.app.name}_{modname}"
     env["APP_MODULE_CONF"] = conf

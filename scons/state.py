@@ -25,6 +25,7 @@ class BuildState:
         # Test infrastructure shared between modules
         self.exported_test_includes = {}
         self.exported_test_headers = {}  # module_name -> {header path in test-include: exported dir}
+        self.deferred_program_links = []   # (program env, program depends closure, static_libs)
 
         # C++20 module support
         self.exported_bmis = {}    # module_name -> list of BMI names exported by that module
