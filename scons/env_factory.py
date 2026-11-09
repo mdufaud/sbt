@@ -95,6 +95,8 @@ def link_dev_libs(env):
     """Search <build>/dev/lib first, at link time and in the rpath."""
     env["SBT_LINKS_DEV"] = True
     env.PrependUnique(LIBPATH=[builder.build_dev_lib_path])
+    # base LINKFLAGS start with -L<build>/lib, searched before LIBPATH
+    env.PrependUnique(LINKFLAGS=[f"-L{builder.build_dev_lib_path}"])
 
 
 def create_module_env(conf, ctx,
