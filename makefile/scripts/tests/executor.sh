@@ -200,6 +200,27 @@ setup_perf()
     perf_wrapper="perf record -q -F 499 --user-callchains --call-graph dwarf"
 }
 
+# TEST_WRAPPER_MODULE_<module> (non-alphanumerics as _) launches that module's binary, outside
+# the debugger or perf: natively only, a runner would launch the emulator; a missing program
+# runs the module without it
+module_wrapper()
+{
+    local module="$1"
+    local name="TEST_WRAPPER_MODULE_${module//[^A-Za-z0-9_]/_}"
+    local value="${!name:-}"
+    [ -n "$value" ] || return 0
+    if [ -n "$TEST_RUNNER" ] || [ "${SBT_PLATFORM:-}" = "web" ] || [ "${SBT_PLATFORM:-}" = "android" ]; then
+        echo "warning: $name ignored under a test runner, web and android" >&2
+        return 0
+    fi
+    local program="${value%% *}"
+    if ! command -v "$program" >/dev/null 2>&1; then
+        echo "warning: $name: $program not found, $module runs without it" >&2
+        return 0
+    fi
+    printf '%s' "$value"
+}
+
 perf_report()
 {
     local data
@@ -278,6 +299,10 @@ execute_tests()
             # one data file per shard: perf cannot merge them
             # perf blocks SIGWINCH and ignores SIGUSR2 in its workload: restore the defaults
             wrapper="$perf_wrapper -o $perf_dir/$module$([ "$shards" -gt 1 ] && echo @SHARD@).data -- env --default-signal"
+        fi
+        launcher="$(module_wrapper "$module")"
+        if [ -n "$launcher" ]; then
+            wrapper="$launcher $wrapper"
         fi
         if [ -n "$timeout_wrapper" ]; then
             wrapper="$timeout_wrapper $wrapper"

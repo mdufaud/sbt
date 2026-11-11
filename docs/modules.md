@@ -764,6 +764,21 @@ override any engine value):
 The same facts are available to Make as `$(PLATFORM)`, `$(MACHINE)`, `$(LIBC)`,
 `$(COMPILE_MODE)`, `$(COMPILER)`, `$(GNU_TRIPLET)`, `$(CROSS)`.
 
+A module whose test binary needs a launcher (an `LD_PRELOAD` sandbox such as
+`umockdev-wrapper`) gets it from `TEST_WRAPPER_MODULE_<module>`, exported by
+`app.generate_test_env`; characters other than letters, digits and `_` in the module name
+become `_`. The value is a command line put before the binary, outside the debugger and
+perf, inside the test timeout; every `jtest` shard runs under it with its own shard env.
+It applies to native runs only: under a test runner (wine, qemu, node) or on web and
+android it is ignored with a warning, since it would launch the emulator. When its first
+word is not found on `PATH` the module runs without it, with a warning: tests that need
+the launcher skip themselves.
+
+```python
+def generate_test_env(builder):
+    return {"TEST_WRAPPER_MODULE_usb": "umockdev-wrapper"}
+```
+
 #### Machine-readable reports
 
 Each run ends with a `TEST RESULTS` recap, printed after the failure details: one line per
