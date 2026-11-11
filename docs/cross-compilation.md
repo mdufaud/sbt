@@ -290,6 +290,7 @@ Generated in `build/<path>/vcpkg/overlay-triplets/`. It wraps the original tripl
 - Extra compiler flags (`vcpkg_cflags`, `vcpkg_cxxflags`)
 - Cross cmake toolchain
 - Cross meson file (for ports using meson, e.g., dbus)
+- The emscripten version (`emcc --version`, web only): vcpkg identifies the compiler by the clang emcc bundles, whose version can stay the same across emscripten releases that change libc++, so a stale cached package would be linked otherwise
 - Per-port cmake options
 
 vcpkg hashes the triplet and toolchain text into its binary-cache key, so the generated files must not

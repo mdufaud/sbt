@@ -7,7 +7,9 @@ wrapper that hides host .pc files from cross builds.
 import filecmp
 import os
 import platform
+import re
 import shutil
+import subprocess
 
 from sbt.core import architectures
 from sbt.core import builder
@@ -27,6 +29,16 @@ _X11_WAYLAND_FORCE = [
 def _posix(path: str) -> str:
     """Normalize backslashes to '/' for embedding in cmake/sh files."""
     return path.replace("\\", "/")
+
+
+def _emscripten_version() -> str:
+    """Release and commit of emcc ('7.0.0-git (777e6e5d...)'), empty when emcc does not answer."""
+    try:
+        result = subprocess.run(["emcc", "--version"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    match = re.search(r"\d+\.\d+\.\d+\S*(?: \([0-9a-f]+\))?", result.stdout)
+    return match.group(0) if match else ""
 
 
 def _first_existing(paths: list[str]) -> str | None:
@@ -207,6 +219,7 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
       - extra VCPKG_C/CXX_FLAGS from app.py
       - cross-linux host-header isolation (cmake cross-toolchain + force X11/Wayland)
       - Android NDK toolchain chainload
+      - the emscripten version (web)
       - per-port VCPKG_CMAKE_CONFIGURE_OPTIONS (base + platform override)
 
     Dynamic triplets (musl/zig) have their base generated inline; static ones
@@ -219,6 +232,7 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
 
     is_cross_linux = builder.is_cross_building() and builder.build_platform == "linux"
     is_android = builder.build_platform == "android"
+    is_web = builder.build_platform == "web"
     is_zig = builder.build_compiler == "zig"  # self-contained: chainloads zig-toolchain.cmake
     is_filc = builder.build_compiler == "filc"  # self-contained: chainloads filc-toolchain.cmake
 
@@ -241,7 +255,7 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
                   or triplets.is_zig_triplet(vcpkg_triplet)
                   or triplets.is_filc_triplet(vcpkg_triplet))
 
-    if not (need_flags or is_cross_linux or is_android or need_cmake_opts or is_dynamic):
+    if not (need_flags or is_cross_linux or is_android or is_web or need_cmake_opts or is_dynamic):
         return None
 
     overlay_dir = os.path.join(vcpkg_build_path, "overlay-triplets")
@@ -330,6 +344,10 @@ def build_overlay_triplet_with_flags(app, vcpkg_triplet: str, vcpkg_build_path: 
             f'set(ANDROID_PLATFORM android-{api_level})',
             "",
         ]
+
+    if is_web:
+        # vcpkg keys its cache on the clang emcc bundles, which a release changing libc++ can keep
+        lines += [f'set(SBT_EMSCRIPTEN_VERSION "{_emscripten_version()}")', ""]
 
     # Ports whose option list was cleared by a platform override are skipped.
     active_cmake_opts = {k: v for k, v in cmake_opts.items() if v}
