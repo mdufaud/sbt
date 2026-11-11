@@ -92,7 +92,7 @@ test: build
 	$(call mk_log_info,makefile,$(if $(TEST_BENCH),starting benchmarks in build: $(BENCH_PATH),starting tests in build: $(TEST_PATH)))
 	$(QUIET) $(if $(TEST_COVERAGE_RESET),find '$(OBJ_PATH)' -name '*.gcda' -delete)
 	$(if $(TEST_RUNNER),$(call mk_log_warning,makefile,test runner '$(TEST_RUNNER)' active - DEBUGGER and sanitizer options disabled (unsupported under emulation)))
-	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
+	$(QUIET) env $(BUILD_CMD_LINE) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
 	$(QUIET) env SBT_ENV_JSON="$(SBT_ENV_JSON_PATH)" \
 					bash $(MAKEFILE_TOOLS)/scripts/tests/generate.sh
 	$(QUIET) env DEBUGGER="$(if $(TEST_RUNNER),,$(DEBUGGER))" \
@@ -140,7 +140,7 @@ fuzz_test: asan = 1
 fuzz_test: ubsan = 1
 fuzz_test: build
 	$(call mk_log_info,makefile,starting fuzzers in build: $(FUZZ_PATH))
-	$(QUIET) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
+	$(QUIET) env $(BUILD_CMD_LINE) $(PYTHON_BIN) $(SBT_CLI) dump >/dev/null
 	$(QUIET) env SBT_ENV_JSON="$(SBT_ENV_JSON_PATH)" \
 					bash $(MAKEFILE_TOOLS)/scripts/tests/generate.sh
 	$(QUIET) env DEBUGGER="$(DEBUGGER)" \
