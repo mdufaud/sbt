@@ -116,6 +116,22 @@ def _origin_rpath_flags(env, artifact_dir):
     return flags
 
 
+def _android_java_dirs(env, program_closure, ctx):
+    """Java source dirs of the module and of every local module it links: each ships into the APK."""
+    module_name = env['APP_MODULE_NAME']
+    conf = env['APP_MODULE_CONF']
+    java_dirs = []
+    for modname in [module_name] + conf.get("depends", []) + list(program_closure):
+        modconf = conf if modname == module_name else ctx.build_modules.get(modname, {})
+        if modconf.get("external"):
+            continue
+        for rel in modconf.get("android-java-dirs", []):
+            path = os_path.join(builder.build_modules_path, modname, rel)
+            if path not in java_dirs:
+                java_dirs.append(path)
+    return java_dirs
+
+
 def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, program_closure=(), **kwargs):
     """Orchestrate building an Android APK from the given source(s).
 
@@ -183,6 +199,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
     staging_dir = os_path.join(builder.build_path, "apk-staging", sanitized_name)
     apk_output = os_path.join(output_dir, f"{name}.apk")
     android_permissions = env['APP_MODULE_CONF'].get('android-permissions', [])
+    java_dirs = _android_java_dirs(env, program_closure, ctx)
 
     # Compute the Gradle build type from the sbt compile "mode". The mapping is a
     # project decision declared via `android_release_modes` (a list) in app.py.
@@ -203,6 +220,9 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
             for f in files:
                 if f != "config.py":
                     stage_inputs.append(os_path.join(root, f))
+    for java_dir in java_dirs:
+        for root, _dirs, files in os.walk(java_dir):
+            stage_inputs.extend(os_path.join(root, f) for f in files)
     if sign_config:
         stage_inputs.append(sign_config)
 
@@ -214,6 +234,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
         "config": config,
         "name": name,
         "permissions": android_permissions,
+        "java_dirs": java_dirs,
         "build_type": build_type,
         "ndk_version": ndk_version or "",
         "gradle_cache_dir": gradle_cache_dir or "",
@@ -225,7 +246,7 @@ def _android_build_apk(env, src, name, output_dir, libs, ctx, android_dir=None, 
 
     def _stage_apk(target, source, env):
         scons_android.stage_gradle_project(
-            staging_dir, name, module_android_dir, permissions=android_permissions,
+            staging_dir, name, module_android_dir, permissions=android_permissions, java_dirs=java_dirs,
             project_name=project_name,
             gradle_cache_dir=gradle_cache_dir,
             ndk_version=ndk_version,

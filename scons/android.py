@@ -199,7 +199,7 @@ def load_override_config(android_dir, project_name=None):
 
 
 def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions=None, project_name=None,
-                         gradle_cache_dir=None, ndk_version=None, sign_config=None):
+                         gradle_cache_dir=None, ndk_version=None, sign_config=None, java_dirs=None):
     """Stage a complete Gradle project from templates + optional overrides.
 
     Args:
@@ -207,6 +207,7 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
         name: demo/bin name (used for placeholders)
         module_android_dir: optional module-relative android/ override directory
         permissions: list of Android permission strings (e.g. ["android.permission.INTERNET"])
+        java_dirs: Java source roots (module "android-java-dirs") copied into app/src/main/java
         project_name: app name used to derive the default Java namespace
         gradle_cache_dir: optional base dir for the Gradle caches (the `.gradle`
             project cache and the local build cache live under this dir). When
@@ -273,6 +274,12 @@ def stage_gradle_project(staging_dir, name, module_android_dir=None, permissions
         bridge_cpp = os.path.join(tmp_dir, "app", "src", "main", "cpp", "terminal_bridge.cpp")
         if os.path.isfile(bridge_cpp):
             os.remove(bridge_cpp)
+
+    # Step 2b: Java sources the linked modules ship, under their own packages
+    java_root = os.path.join(tmp_dir, "app", "src", "main", "java")
+    for java_dir in java_dirs or []:
+        if os.path.isdir(java_dir):
+            _copy_tree(java_dir, java_root)
 
     # Step 3: Overlay override files
     if module_android_dir and os.path.isdir(module_android_dir):

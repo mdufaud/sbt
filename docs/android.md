@@ -202,12 +202,13 @@ up it is reused, no second instance starts.
 sbt provides default Android project templates in `site_scons/sbt/android/`. When building a demo or binary for `platform=android`, sbt:
 
 1. Copies the default Gradle project templates to a staging directory
-2. If the module provides an override at `<module>/android/`, overlays those files on top
-3. Replaces `__SBT_*__` placeholders in all text files
-4. Compiles C++ sources into a `.so` (SharedLibrary via NDK clang)
-5. Copies the entry `.so` (and, in a shared build, **every module `.so`**) into the staged project's `jniLibs/<abi>/`
-6. Runs `gradle assemble<BuildType>` (see [Build type mapping](#build-type-mapping); debug by default, `assembleRelease` for a "release-like" mode)
-7. Copies the resulting APK to the build output directory
+2. Copies the `android-java-dirs` of the module and of every local module it links into `app/src/main/java`: a library that needs Java (callbacks of abstract framework classes) ships it to each APK using it
+3. If the module provides an override at `<module>/android/`, overlays those files on top
+4. Replaces `__SBT_*__` placeholders in all text files
+5. Compiles C++ sources into a `.so` (SharedLibrary via NDK clang)
+6. Copies the entry `.so` (and, in a shared build, **every module `.so`**) into the staged project's `jniLibs/<abi>/`
+7. Runs `gradle assemble<BuildType>` (see [Build type mapping](#build-type-mapping); debug by default, `assembleRelease` for a "release-like" mode)
+8. Copies the resulting APK to the build output directory
 
 The Gradle caches live under a **single directory per build configuration** — a
 sibling of `lib/` and `demo/`: `build/<triplet>/<mode>/<liblink>/gradle/`. It is

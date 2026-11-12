@@ -223,6 +223,7 @@ After a non-dry build, SBT calls optional `on_build_success(build_modules, build
 | Key | Type | Description |
 |-----|------|-------------|
 | `android-permissions` | `list[str]` | Android manifest permissions |
+| `android-java-dirs` | `list[str]` | Module-relative Java source roots copied into `app/src/main/java` of every APK linking the module (local modules only) |
 
 ## Platform/compiler variant keys
 
