@@ -565,10 +565,10 @@ def after_build():
     if build_state.module_times:
         logger.info("module build times:")
         width = max(len(name) for name in build_state.module_times)
-        for name, (start, end) in build_state.module_times.items():
+        for name, (start, end, final_built) in build_state.module_times.items():
             if start is None:
                 took = "up to date"
-            elif end is None:
+            elif not (success or final_built):
                 took = "not finished"
             else:
                 took = "{:.3f} sec".format(end - start)

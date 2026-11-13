@@ -47,7 +47,7 @@ class BuildState:
         # All source file nodes touched during the build (used for progress bar)
         self.targets = set()
 
-        self.module_times = {}     # module_name -> [first action start, last action end]
+        self.module_times = {}     # module_name -> [first action start, last action end, a final target built]
 
     # ------------------------------------------------------------------
     # Helpers

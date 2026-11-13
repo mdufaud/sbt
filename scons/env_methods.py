@@ -70,7 +70,7 @@ TEST_HEADER_EXTENSIONS = (".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".tpp")
 ###############################################################################
 
 def _track_time(env, result, ctx, objects=None):
-    times = ctx.state.module_times.setdefault(env['APP_MODULE_NAME'], [None, None])
+    times = ctx.state.module_times.setdefault(env['APP_MODULE_NAME'], [None, None, False])
 
     def _start(target, source, env):
         now = time.time()
@@ -82,11 +82,18 @@ def _track_time(env, result, ctx, objects=None):
         if times[1] is None or now > times[1]:
             times[1] = now
 
+    def _final_end(target, source, env):
+        _end(target, source, env)
+        times[2] = True
+
     final = scons_utils.as_list(result)
     if objects is None:
         objects = [src for node in final for src in node.sources]
-    env.AddPreAction(scons_utils.as_list(objects) + final, Action(_start, None))
-    env.AddPostAction(final, Action(_end, None))
+    objects = scons_utils.as_list(objects)
+    env.AddPreAction(objects + final, Action(_start, None))
+    # objects rebuilt identical leave the final targets up to date: their end counts too
+    env.AddPostAction(objects, Action(_end, None))
+    env.AddPostAction(final, Action(_final_end, None))
 
 
 def _origin_rpath_flags(env, artifact_dir):

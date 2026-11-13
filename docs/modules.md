@@ -554,9 +554,9 @@ make def=MY_DEFINE=1           # Add preprocessor define
 ```
 
 Every build ends with `module build times`: per module, the span from its first compile
-to its last link (`up to date` when nothing ran, `not finished` when the build stopped
-first). With `-j`, module spans overlap; the total `build succeeded (took ...)` also
-counts configuration time.
+to its last compile or link (`up to date` when nothing ran, `not finished` when the build
+failed before the module's library or binaries were built). With `-j`, module spans
+overlap; the total `build succeeded (took ...)` also counts configuration time.
 
 #### Make targets
 
