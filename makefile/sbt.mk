@@ -96,10 +96,13 @@ endif
 # make exits, sub-makes and scons inherit it through SBT_LOCK_HELD.
 SBT_LOCK_TIMEOUT ?= 7200
 SBT_LOCK_PATH := $(BUILD_PATH)/.sbt.lock
-SBT_LOCK_FREE_GOALS := help info conf dump jdump path targets
+SBT_LOCK_FREE_GOALS := help info conf dump jdump path targets \
+	adb android-emu android-emu-run android-emu-setup android-emu-stop
+# adb and android-emu-run read their next goal as the APK path, not a target
+SBT_LOCK_GOALS := $(if $(filter adb android-emu-run,$(firstword $(MAKECMDGOALS))),$(firstword $(MAKECMDGOALS)),$(MAKECMDGOALS))
 ifneq ($(SBT_LOCK_TIMEOUT),0)
 ifeq ($(filter $(SBT_LOCK_PATH),$(SBT_LOCK_HELD)),)
-ifneq ($(or $(if $(MAKECMDGOALS),,x),$(filter-out $(SBT_LOCK_FREE_GOALS),$(MAKECMDGOALS))),)
+ifneq ($(or $(if $(MAKECMDGOALS),,x),$(filter-out $(SBT_LOCK_FREE_GOALS),$(SBT_LOCK_GOALS))),)
 ifneq ($(shell $(PYTHON_BIN) $(SBT_PATH)/scripts/build_lock.py acquire $(SBT_LOCK_PATH) $(SBT_LOCK_TIMEOUT) $$PPID >&2; echo $$?),0)
 $(error "Makefile: build lock $(SBT_LOCK_PATH) not acquired within $(SBT_LOCK_TIMEOUT)s (SBT_LOCK_TIMEOUT=0 disables the lock)")
 endif
