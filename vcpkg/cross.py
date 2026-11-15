@@ -170,6 +170,8 @@ def generate_cmake_cross_toolchain(
             or f"{gcc_prefix}g++"
         lines.append(f'set(CMAKE_C_COMPILER "{c_compiler}")')
         lines.append(f'set(CMAKE_CXX_COMPILER "{cxx_compiler}")')
+        # linux.cmake defaults ASM to <GNU triplet>-gcc, absent for vendor prefixes (arm-none-linux-gnueabihf-)
+        lines.append(f'set(CMAKE_ASM_COMPILER "{c_compiler}")')
         # Only set tools that exist: Arch's musl package ships gcc/g++/ar/ranlib
         # but not objcopy/strip/nm/ld, where host binutils work fine.
         optional_tools = {
