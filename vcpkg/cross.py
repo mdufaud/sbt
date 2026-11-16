@@ -165,9 +165,9 @@ def generate_cmake_cross_toolchain(
     # Pin cross tools before including linux.cmake so they take precedence.
     if gcc_prefix:
         c_compiler = _staged_wrapper(_resolve_compiler_wrapper("cc", sbt_toolchains_path, addon_toolchains_path)) \
-            or f"{gcc_prefix}gcc"
+            or shutil.which(f"{gcc_prefix}gcc") or f"{gcc_prefix}gcc"
         cxx_compiler = _staged_wrapper(_resolve_compiler_wrapper("cxx", sbt_toolchains_path, addon_toolchains_path)) \
-            or f"{gcc_prefix}g++"
+            or shutil.which(f"{gcc_prefix}g++") or f"{gcc_prefix}g++"
         lines.append(f'set(CMAKE_C_COMPILER "{c_compiler}")')
         lines.append(f'set(CMAKE_CXX_COMPILER "{cxx_compiler}")')
         # linux.cmake defaults ASM to <GNU triplet>-gcc, absent for vendor prefixes (arm-none-linux-gnueabihf-)
